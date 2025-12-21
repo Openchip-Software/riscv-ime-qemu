@@ -191,7 +191,8 @@ FIELD(VTYPE, VLMUL, 0, 3)
 FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
-FIELD(VTYPE, RESERVED, 8, sizeof(target_ulong) * 8 - 9)
+FIELD(VTYPE, VALTFMT, 8, 1)   /* altfmt, defined by Zvfbfa */
+FIELD(VTYPE, RESERVED, 9, sizeof(target_ulong) * 8 - 10)
 
 typedef struct PMUCTRState {
     /* Current value of a counter */

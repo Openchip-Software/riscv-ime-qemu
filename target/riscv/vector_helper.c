@@ -40,6 +40,7 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
     RISCVCPU *cpu = env_archcpu(env);
     uint64_t vlmul = FIELD_EX64(s2, VTYPE, VLMUL);
     uint8_t vsew = FIELD_EX64(s2, VTYPE, VSEW);
+    bool valtfmt = FIELD_EX64(s2, VTYPE, VALTFMT);
     uint16_t sew = 8 << vsew;
     int xlen = riscv_cpu_xlen(env);
     bool vill = (s2 >> (xlen - 1)) & 0x1;
