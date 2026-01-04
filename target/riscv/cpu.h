@@ -223,6 +223,9 @@ struct CPUArchState {
     target_ulong vl;
     target_ulong vstart;
     target_ulong vtype;
+    /* the left-aligned fields of vtype are stored separately */
+    target_ulong vsrm;
+    target_ulong vlambda;
     bool vill;
 
     target_ulong pc;
@@ -848,6 +851,9 @@ static inline uint32_t vext_get_vlmax(uint32_t vlenb, uint32_t vsew,
      */
     return vlen >> (vsew + 3 - lmul);
 }
+
+void vext_vtype_init(CPURISCVState *env);
+void vext_vtype_set_vill(CPURISCVState *env);
 
 bool riscv_cpu_is_32bit(RISCVCPU *cpu);
 

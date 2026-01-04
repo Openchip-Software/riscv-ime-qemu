@@ -927,6 +927,12 @@ static RISCVException read_vtype(CPURISCVState *env, int csrno,
         g_assert_not_reached();
     }
     *val = (target_ulong)vill | env->vtype;
+    /* Apply srm and lambda for zvmma */
+    if (riscv_cpu_cfg(env)->ext_zvmma) {
+        int xlen = riscv_cpu_xlen(env);
+        *val |= (uint64_t)env->vlambda << (xlen - 6);
+        *val |= (uint64_t)env->vsrm << (xlen - 3);
+    }
     return RISCV_EXCP_NONE;
 }
 

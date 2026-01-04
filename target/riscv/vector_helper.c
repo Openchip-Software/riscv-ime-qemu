@@ -47,6 +47,12 @@ static target_ulong vtype_reserved(CPURISCVState *env, target_ulong vtype)
                                            xlen - 1 - R_VTYPE_ALTFMT_SHIFT);
     }
 
+    /* Ignore the fields defined by Zvmma */
+    if (riscv_cpu_cfg(env)->ext_zvmma) {
+        reserved &= ~MAKE_64BIT_MASK(xlen - 6, 3); /* LAMBDA field */
+        reserved &= ~MAKE_64BIT_MASK(xlen - 3, 2); /* SRM field */
+    }
+
     return reserved;
 }
 
@@ -57,6 +63,18 @@ static inline void reset_ill_vtype(CPURISCVState *env)
     env->vtype = 0;
     env->vl = 0;
     env->vstart = 0;
+}
+
+void vext_vtype_init(CPURISCVState *env)
+{
+    if (riscv_cpu_cfg(env)->ext_zvmma) {
+        /* TODO: make context sensitive */
+        fprintf(stderr, "*** Init ***\n");
+        env->vlambda = 0b001;
+        env->vsrm = 0b1;
+    }
+
+    reset_ill_vtype(env);
 }
 
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
@@ -111,6 +129,24 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
     if (cpu->cfg.rvv_vsetvl_x0_vill && x0 && (env->vl != vl)) {
         reset_ill_vtype(env);
         return 0;
+    }
+
+    target_ulong lambda = s2 >> (xlen-6) & 0b111;
+    target_ulong srm = s2 >> (xlen-3) & 0b11;
+
+    if (lambda) {
+        // check if lambda is supported
+        if (riscv_cpu_cfg(env)->zvmma_lambda_supported & (1 << (lambda - 1)))
+            env->vlambda = lambda;
+        else
+            fprintf(stderr, "unsupported lambda %ld\n", lambda);
+    }
+    if (srm) {
+        // check if srm is supported
+        if (srm != 0b11 && riscv_cpu_cfg(env)->zvmma_srm_supported & srm)
+            env->vsrm = srm;
+        else
+            fprintf(stderr, "unsupported srm %ld\n", srm);
     }
 
     env->vl = vl;
