@@ -33,6 +33,41 @@
 #include "vector_internals.h"
 #include <math.h>
 
+void vext_vtype_set_vill(CPURISCVState *env)
+{
+    /* Zero vtype */
+    env->vtype = 0;
+    env->vill = true;
+}
+
+void vext_vtype_init(CPURISCVState *env)
+{
+    if (riscv_cpu_cfg(env)->ext_zvmma) {
+        /* TODO: make context sensitive */
+        fprintf(stderr, "*** Init ***\n");
+        env->vlambda = 0b001;
+        env->vsrm = 0b1;
+    }
+
+    vext_vtype_set_vill(env);
+}
+
+static inline
+bool vtype_reserved_bits_clear_p(CPURISCVState *env, target_ulong s2)
+{
+    int xlen = riscv_cpu_xlen(env);
+    target_ulong reserved = s2 &
+                            MAKE_64BIT_MASK(R_VTYPE_RESERVED_SHIFT,
+                                            xlen - 1 - R_VTYPE_RESERVED_SHIFT);
+    /* Ignore the fields defined by Zvmma */
+    if (riscv_cpu_cfg(env)->ext_zvmma) {
+        reserved &= ~MAKE_64BIT_MASK(xlen - 6, 3); /* LAMBDA field */
+        reserved &= ~MAKE_64BIT_MASK(xlen - 3, 2); /* SRM field */
+    }
+
+    return (reserved == 0);
+}
+
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
                             target_ulong s2, target_ulong x0)
 {
@@ -40,13 +75,9 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
     RISCVCPU *cpu = env_archcpu(env);
     uint64_t vlmul = FIELD_EX64(s2, VTYPE, VLMUL);
     uint8_t vsew = FIELD_EX64(s2, VTYPE, VSEW);
-    bool valtfmt = FIELD_EX64(s2, VTYPE, VALTFMT);
     uint16_t sew = 8 << vsew;
     int xlen = riscv_cpu_xlen(env);
     bool vill = (s2 >> (xlen - 1)) & 0x1;
-    target_ulong reserved = s2 &
-                            MAKE_64BIT_MASK(R_VTYPE_RESERVED_SHIFT,
-                                            xlen - 1 - R_VTYPE_RESERVED_SHIFT);
     uint16_t vlen = cpu->cfg.vlenb << 3;
     int8_t lmul;
 
@@ -63,10 +94,9 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
         }
     }
 
-    if ((sew > cpu->cfg.elen) || vill || (reserved != 0)) {
+    if ((sew > cpu->cfg.elen) || vill || !vtype_reserved_bits_clear_p(env, s2)) {
         /* only set vill bit. */
-        env->vill = 1;
-        env->vtype = 0;
+        vext_vtype_set_vill(env);
         env->vl = 0;
         env->vstart = 0;
         return 0;
@@ -85,11 +115,28 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
 
     if (cpu->cfg.rvv_vsetvl_x0_vill && x0 && (env->vl != vl)) {
         /* only set vill bit. */
-        env->vill = 1;
-        env->vtype = 0;
+        vext_vtype_set_vill(env);
         env->vl = 0;
         env->vstart = 0;
         return 0;
+    }
+
+    target_ulong lambda = s2 >> (xlen-6) & 0b111;
+    target_ulong srm = s2 >> (xlen-3) & 0b11;
+
+    if (lambda) {
+        // check if lambda is supported
+        if (riscv_cpu_cfg(env)->zvmma_lambda_supported & (1 << (lambda - 1)))
+            env->vlambda = lambda;
+        else
+            fprintf(stderr, "unsupported lambda %ld\n", lambda);
+    }
+    if (srm) {
+        // check if srm is supported
+        if (srm != 0b11 && riscv_cpu_cfg(env)->zvmma_srm_supported & srm)
+            env->vsrm = srm;
+        else
+            fprintf(stderr, "unsupported srm %ld\n", srm);
     }
 
     env->vl = vl;

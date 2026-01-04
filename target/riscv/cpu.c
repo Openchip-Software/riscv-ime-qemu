@@ -781,7 +781,7 @@ static void riscv_cpu_reset_hold(Object *obj, ResetType type)
     set_default_nan_mode(1, &env->fp_status);
     /* Default NaN value: sign bit clear, frac msb set */
     set_float_default_nan_pattern(0b01000000, &env->fp_status);
-    env->vill = true;
+    vext_vtype_init(env);
 
 #ifndef CONFIG_USER_ONLY
     if (cpu->cfg.debug) {
@@ -1838,6 +1838,98 @@ static const PropertyInfo prop_elen = {
     .set = prop_elen_set,
 };
 
+static void prop_lambda_supported_set(Object *obj, Visitor *v, const char *name,
+                                      void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint16_t value;
+
+    if (!visit_type_uint16(v, name, &value, errp)) {
+        return;
+    }
+
+    if (cpu->cfg.ext_zvmma && !value) {
+        error_setg(errp, "Zvmma: must support at least one lamba");
+        return;
+    }
+
+    if (value > 0b1111111) {
+        error_setg(errp, "Zvmma: supported lamba (bitmask) has only 7 entries ({64, 32, 16, 8, 4, 2, 1})");
+        return;
+    }
+
+    if (value != cpu->cfg.zvmma_lambda_supported && riscv_cpu_is_vendor(obj)) {
+        cpu_set_prop_err(cpu, name, errp);
+        error_append_hint(errp, "Current '%s' val: %u\n",
+                          name, cpu->cfg.zvmma_lambda_supported);
+        return;
+    }
+
+    cpu_option_add_user_setting(name, value);
+    cpu->cfg.zvmma_lambda_supported = value;
+}
+
+static void prop_lambda_supported_get(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    uint16_t value = RISCV_CPU(obj)->cfg.zvmma_lambda_supported;
+
+    visit_type_uint16(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_zvmma_lambda = {
+    .type = "uint16",
+    .description = "zvmma-lambda-supported",
+    .get = prop_lambda_supported_get,
+    .set = prop_lambda_supported_set,
+};
+
+static void prop_srm_supported_set(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint16_t value;
+
+    if (!visit_type_uint16(v, name, &value, errp)) {
+        return;
+    }
+
+    if (cpu->cfg.ext_zvmma && !value) {
+        error_setg(errp, "Zvmma: must support at least one srm");
+        return;
+    }
+
+    if (value > 0b11) {
+        error_setg(errp, "Zvmma: supported SRM (bitmask) has only 2 bits");
+        return;
+    }
+
+    if (value != cpu->cfg.zvmma_srm_supported && riscv_cpu_is_vendor(obj)) {
+        cpu_set_prop_err(cpu, name, errp);
+        error_append_hint(errp, "Current '%s' val: %u\n",
+                          name, cpu->cfg.zvmma_srm_supported);
+        return;
+    }
+
+    cpu_option_add_user_setting(name, value);
+    cpu->cfg.zvmma_srm_supported = value;
+}
+
+static void prop_srm_supported_get(Object *obj, Visitor *v, const char *name,
+                                      void *opaque, Error **errp)
+{
+    uint16_t value = RISCV_CPU(obj)->cfg.zvmma_srm_supported;
+
+    visit_type_uint16(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_zvmma_srm = {
+    .type = "uint16",
+    .description = "zvmma-srm-supported",
+    .get = prop_srm_supported_get,
+    .set = prop_srm_supported_set,
+};
+
 static void prop_cbom_blksize_set(Object *obj, Visitor *v, const char *name,
                                   void *opaque, Error **errp)
 {
@@ -2653,6 +2745,9 @@ static const Property riscv_cpu_properties[] = {
 
     {.name = "vlen", .info = &prop_vlen},
     {.name = "elen", .info = &prop_elen},
+
+    {.name = "zvmma-lambda", .info = &prop_zvmma_lambda},
+    {.name = "zvmma-srm", .info = &prop_zvmma_srm},
 
     {.name = "cbom_blocksize", .info = &prop_cbom_blksize},
     {.name = "cbop_blocksize", .info = &prop_cbop_blksize},

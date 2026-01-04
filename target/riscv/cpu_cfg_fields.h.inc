@@ -123,6 +123,10 @@ BOOL_FIELD(ext_zic64b)
 BOOL_FIELD(ext_ssstateen)
 BOOL_FIELD(ext_sha)
 
+/* Zvmma (IME) features */
+TYPED_FIELD(uint16_t, zvmma_lambda_supported, 0b1111111)
+TYPED_FIELD(uint16_t, zvmma_srm_supported, 0b11)
+
 /*
  * Always 'true' booleans for named features
  * TCG always implement/can't be user disabled,
