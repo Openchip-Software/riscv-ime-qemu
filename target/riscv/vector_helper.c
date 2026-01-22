@@ -44,7 +44,6 @@ void vext_vtype_init(CPURISCVState *env)
 {
     if (riscv_cpu_cfg(env)->ext_zvmma) {
         /* TODO: make context sensitive */
-        fprintf(stderr, "*** Init ***\n");
         env->vlambda = 0b001;
         env->vsrm = 0b1;
     }
@@ -120,23 +119,20 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
         env->vstart = 0;
         return 0;
     }
-
-    target_ulong lambda = s2 >> (xlen-6) & 0b111;
+    
+    target_ulong lambda = (s2 >> (xlen-6)) & 0b111;
     target_ulong srm = s2 >> (xlen-3) & 0b11;
 
-    if (lambda) {
-        // check if lambda is supported
-        if (riscv_cpu_cfg(env)->zvmma_lambda_supported & (1 << (lambda - 1)))
+    if (riscv_cpu_cfg(env)->ext_zvmma) {
+        if (lambda && riscv_cpu_cfg(env)->zvmma_lambda_supported & (1 << (lambda - 1)))
             env->vlambda = lambda;
-        else
-            fprintf(stderr, "unsupported lambda %ld\n", lambda);
-    }
-    if (srm) {
-        // check if srm is supported
-        if (srm != 0b11 && riscv_cpu_cfg(env)->zvmma_srm_supported & srm)
+
+        if (srm && srm != 0b11 && riscv_cpu_cfg(env)->zvmma_srm_supported & srm)
             env->vsrm = srm;
-        else
-            fprintf(stderr, "unsupported srm %ld\n", srm);
+
+        /* make sure that the Zvmma-specific bits don't make it into env->vtype */
+        s2 &= ~MAKE_64BIT_MASK(xlen - 6, 3); /* LAMBDA field */
+        s2 &= ~MAKE_64BIT_MASK(xlen - 3, 2); /* SRM field */
     }
 
     env->vl = vl;
@@ -5520,3 +5516,116 @@ GEN_VEXT_INT_EXT(vsext_vf2_d, int64_t, int32_t, H8, H4)
 GEN_VEXT_INT_EXT(vsext_vf4_w, int32_t, int8_t,  H4, H1)
 GEN_VEXT_INT_EXT(vsext_vf4_d, int64_t, int16_t, H8, H2)
 GEN_VEXT_INT_EXT(vsext_vf8_d, int64_t, int8_t,  H8, H1)
+
+/* Vector Matrix Tile Load/Store (Zvtls) Extension */
+
+static void index_to_regoffset (uint16_t index, uint8_t lmul, uint8_t lambda, uint8_t *regoff, uint16_t *elementoff)
+{
+    uint16_t  linesize = lambda * lmul;
+    uint8_t   linenum = index / linesize;
+    uint8_t   elem_in_line = index % linesize;
+
+//    fprintf(stderr, "linesize %d linenum %d elem_in_line %d\n", linesize, linenum, elem_in_line);
+    
+    *regoff = elem_in_line / lambda;
+    *elementoff = linenum * lambda + elem_in_line % lambda;
+}
+
+typedef target_ulong zvmtls_calc_elem_off_fn(uint32_t, uint32_t, uint32_t);
+
+static target_ulong zvmtls_preserve_order(uint32_t, uint32_t, uint32_t);
+static target_ulong zvmtls_transpose(uint32_t, uint32_t, uint32_t);
+
+static
+target_ulong zvmtls_preserve_order(uint32_t leading_dim, uint32_t line, uint32_t elem_in_line)
+{
+    return line * leading_dim + elem_in_line;
+}
+
+static
+target_ulong zvmtls_transpose(uint32_t leading_dim, uint32_t line, uint32_t elem_in_line)
+{
+    return elem_in_line * leading_dim + line;
+}
+
+static void
+zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
+                 target_ulong leading_dim, uint32_t lambda_cst,
+                 CPURISCVState *env, uint32_t desc, uint32_t vm,
+                 vext_ldst_elem_fn_tlb *ldst_elem,
+                 zvmtls_calc_elem_off_fn *calc_elem_off,
+                 uint32_t log2_esz, uintptr_t ra)
+{
+    const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;
+    const uint32_t lmul = 1 << vext_lmul(desc);
+    const uint32_t vlambda = lambda_cst ? lambda_cst : env->vlambda;
+    const uint32_t lambda = 1 << (vlambda - 1);
+//    fprintf(stderr, "lmul %d lambda %d log2_esz %d stride %ld\n", lmul, lambda, log2_esz, stride);
+    
+    VSTART_CHECK_EARLY_EXIT(env, env->vl);
+
+    for (uint32_t i = env->vstart; i < env->vl; env->vstart = ++i) {
+        uint8_t  regoff;
+        uint16_t elementoff;
+        index_to_regoffset(i, lmul, lambda, &regoff, &elementoff);
+//        fprintf(stderr, "ldst_elem: %d -> %d.%d\n", i, regoff, elementoff);
+
+        uint16_t  linesize = lambda * lmul;
+        uint8_t   line = i / linesize;
+        uint8_t   elem_in_line = i % linesize;
+
+        target_ulong elem_off = calc_elem_off(leading_dim, line, elem_in_line);
+//        target_ulong addr = base + ((linenum * leading_dim + elem_in_line) << log2_esz);
+        target_ulong addr = base + (elem_off << log2_esz);
+//        addr = base + ((elem_in_line * leading_dim + linenum) << log2_esz);
+//        fprintf(stderr, "loadaddr %lx destaddr %p\n", adjust_addr(env, addr), vd + regoff * vlenb);
+        ldst_elem(env, adjust_addr(env, addr), elementoff, vd + regoff * vlenb, ra);
+    }
+
+    env->vstart = 0;
+
+    /* TODO: handle tail */
+//    vext_set_tail_elems_1s(env->vl, vd, desc, nf, esz, max_elems);
+}
+
+#define GEN_ZVMMA_LD_TILE(NAME, ETYPE, LOAD_FN, ADDRCALC_FN)            \
+void HELPER(NAME)(void *vd, void * v0, target_ulong base,               \
+                  target_ulong leading_dim, CPURISCVState *env,         \
+                  uint32_t desc, uint32_t lambda)                       \
+{                                                                       \
+    uint32_t vm = vext_vm(desc);                                        \
+    zvmtls_ldst_tile(vd, v0, base, leading_dim, lambda,                 \
+                     env, desc, vm, LOAD_FN, ADDRCALC_FN,               \
+                     ctzl(sizeof(ETYPE)), GETPC());                     \
+}
+
+GEN_ZVMMA_LD_TILE(vmtl8_v,  int8_t,  lde_b_tlb, zvmtls_preserve_order)
+GEN_ZVMMA_LD_TILE(vmtl16_v, int16_t, lde_h_tlb, zvmtls_preserve_order)
+GEN_ZVMMA_LD_TILE(vmtl32_v, int32_t, lde_w_tlb, zvmtls_preserve_order)
+GEN_ZVMMA_LD_TILE(vmtl64_v, int64_t, lde_d_tlb, zvmtls_preserve_order)
+
+GEN_ZVMMA_LD_TILE(vmttl8_v,  int8_t,  lde_b_tlb, zvmtls_transpose)
+GEN_ZVMMA_LD_TILE(vmttl16_v, int16_t, lde_h_tlb, zvmtls_transpose)
+GEN_ZVMMA_LD_TILE(vmttl32_v, int32_t, lde_w_tlb, zvmtls_transpose)
+GEN_ZVMMA_LD_TILE(vmttl64_v, int64_t, lde_d_tlb, zvmtls_transpose)
+
+#define GEN_ZVMMA_ST_TILE(NAME, ETYPE, STORE_FN, ADDRCALC_FN)           \
+void HELPER(NAME)(void *vd, void *v0, target_ulong base,                \
+                  target_ulong leading_dim, CPURISCVState *env,         \
+                  uint32_t desc, uint32_t lambda)                       \
+{                                                                       \
+    uint32_t vm = vext_vm(desc);                                        \
+    zvmtls_ldst_tile(vd, v0, base, leading_dim, lambda,                 \
+                     env, desc, vm, STORE_FN, ADDRCALC_FN,              \
+                     ctzl(sizeof(ETYPE)), GETPC());                     \
+}
+
+GEN_ZVMMA_ST_TILE(vmts8_v,  int8_t,  ste_b_tlb, zvmtls_preserve_order)
+GEN_ZVMMA_ST_TILE(vmts16_v, int16_t, ste_h_tlb, zvmtls_preserve_order)
+GEN_ZVMMA_ST_TILE(vmts32_v, int32_t, ste_w_tlb, zvmtls_preserve_order)
+GEN_ZVMMA_ST_TILE(vmts64_v, int64_t, ste_d_tlb, zvmtls_preserve_order)
+
+GEN_ZVMMA_ST_TILE(vmtts8_v,  int8_t,  ste_b_tlb, zvmtls_transpose)
+GEN_ZVMMA_ST_TILE(vmtts16_v, int16_t, ste_h_tlb, zvmtls_transpose)
+GEN_ZVMMA_ST_TILE(vmtts32_v, int32_t, ste_w_tlb, zvmtls_transpose)
+GEN_ZVMMA_ST_TILE(vmtts64_v, int64_t, ste_d_tlb, zvmtls_transpose)
