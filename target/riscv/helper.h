@@ -1360,6 +1360,43 @@ DEF_HELPER_5(vsm4k_vi, void, ptr, ptr, i32, env, i32)
 DEF_HELPER_4(vsm4r_vv, void, ptr, ptr, env, i32)
 DEF_HELPER_4(vsm4r_vs, void, ptr, ptr, env, i32)
 
+/* Zvmma (IME) helpers */
+DEF_HELPER_6(vmmacc_vv_b, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vmmacc_vv_h, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vmmacc_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vwmmacc_vv_h, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vwmmacc_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vqwmmacc_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vqwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+
+DEF_HELPER_6(vfmmacc_vv_s, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+
+/* TODO: These receive an extra argument until we decide
+ *       how to pass the information whether dynamic (dyn)
+ *       lambda is to be used or the lambda-value from the
+ *       opcode.
+ */
+DEF_HELPER_7(vmtl8_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtl16_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtl32_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtl64_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmttl8_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmttl16_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmttl32_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmttl64_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmts8_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmts16_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmts32_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmts64_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtts8_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtts16_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtts32_v, void, ptr, ptr, tl, tl, env, i32, i32)
+DEF_HELPER_7(vmtts64_v, void, ptr, ptr, tl, tl, env, i32, i32)
+
 /* CFI (zicfiss) helpers */
 #ifndef CONFIG_USER_ONLY
 DEF_HELPER_1(ssamoswap_disabled, void, env)
