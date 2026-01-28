@@ -1125,6 +1125,8 @@ static void riscv_cpu_init(Object *obj)
     cpu->cfg.pmp_granularity = MIN_RISCV_PMP_GRANULARITY;
     cpu->env.vext_ver = VEXT_VERSION_1_00_0;
     cpu->cfg.max_satp_mode = -1;
+    cpu->cfg.zvmma_lambda_supported = 0b1111111;
+    cpu->cfg.zvmma_srm_supported = 0b11;
 
     if (mcc->def->profile) {
         mcc->def->profile->enabled = true;
