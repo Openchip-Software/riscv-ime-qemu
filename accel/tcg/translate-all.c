@@ -353,6 +353,12 @@ TranslationBlock *tb_gen_code(CPUState *cpu, TCGTBCPUState s)
              * Try again with half as many insns as we attempted this time.
              * If a single insn overflows, there's a bug somewhere...
              */
+             if (max_insns <= 1) {
+                 qemu_log_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT,
+                               "Upping max_insns to 2, "
+                               "as we can't go lower than that\n");
+                 max_insns = 2;
+            }
             assert(max_insns > 1);
             max_insns /= 2;
             qemu_log_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT,
