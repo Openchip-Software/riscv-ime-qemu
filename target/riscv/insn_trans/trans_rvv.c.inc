@@ -1233,6 +1233,15 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
 
     bool use_helper_fn = !s->vstart_eq_zero;
 
+    /*
+     * For VLEN > 1024 (vlenb > 128), use helper function to avoid
+     * generating excessive inline TCG operations that would overflow
+     * the translation buffer.
+     */
+    if (!use_helper_fn && s->cfg_ptr->vlenb * nf > 128) {
+        use_helper_fn = true;
+    }
+
     if (!use_helper_fn) {
         uint32_t size = s->cfg_ptr->vlenb * nf;
         TCGv_i64 t8 = tcg_temp_new_i64();
