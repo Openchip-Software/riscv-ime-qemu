@@ -31,7 +31,7 @@
  * This steals the input that would otherwise map to 24 to match maxsz.
  */
 #define SIMD_MAXSZ_SHIFT   0
-#define SIMD_MAXSZ_BITS    11
+#define SIMD_MAXSZ_BITS    9
 
 #define SIMD_OPRSZ_SHIFT   (SIMD_MAXSZ_SHIFT + SIMD_MAXSZ_BITS)
 #define SIMD_OPRSZ_BITS    2
