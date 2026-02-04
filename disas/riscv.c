@@ -987,6 +987,7 @@ typedef enum {
     rv_op_vfncvtbf16_sat_f_f_w = 956,
     rv_op_vfncvt_f_f_q = 957,
     rv_op_vfncvt_sat_f_f_q = 958,
+    rv_op_vfext_vf2 = 959,
 } rv_op;
 
 /* register names */
@@ -2260,6 +2261,7 @@ const rv_opcode_data rvi_opcode_data[] = {
     { "vfncvtbf16.sat.f.f.w", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
     { "vfncvt.f.f.q", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
     { "vfncvt.sat.f.f.q", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
+    { "vfext.vf2", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
 };
 
 /* CSR names */
@@ -3715,6 +3717,7 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
                     case 12: op = rv_op_vclz_v; break;
                     case 13: op = rv_op_vctz_v; break;
                     case 14: op = rv_op_vcpop_v; break;
+                    case 22: op = rv_op_vfext_vf2; break;
                     }
                     break;
                 case 20:
