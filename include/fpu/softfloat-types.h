@@ -131,6 +131,11 @@ typedef uint8_t float8_e5m2;
 #define const_float8_e4m3(x) (x)
 #define const_float8_e5m2(x) (x)
 
+typedef uint8_t float4_e2m1;
+#define float4_e2m1_val(x) ((x) & 0xf)
+#define make_float4_e2m1(x) ((x) & 0xf)
+#define const_float4_e2m1(x) ((x) & 0xf)
+
 /*
  * Software IEC/IEEE floating-point underflow tininess-detection mode.
  */
