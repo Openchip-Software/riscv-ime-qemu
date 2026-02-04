@@ -120,6 +120,18 @@ typedef struct {
 typedef uint16_t bfloat16;
 
 /*
+ * Software OCP(Open Compute Project) floating point types
+ */
+typedef uint8_t float8_e4m3;
+typedef uint8_t float8_e5m2;
+#define float8_e4m3_val(x) (x)
+#define float8_e5m2_val(x) (x)
+#define make_float8_e4m3(x) (x)
+#define make_float8_e5m2(x) (x)
+#define const_float8_e4m3(x) (x)
+#define const_float8_e5m2(x) (x)
+
+/*
  * Software IEC/IEEE floating-point underflow tininess-detection mode.
  */
 

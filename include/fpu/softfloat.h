@@ -190,6 +190,87 @@ float128 uint64_to_float128(uint64_t, float_status *status);
 float128 uint128_to_float128(Int128, float_status *status);
 
 /*----------------------------------------------------------------------------
+| Software OCP conversion routines.
+*----------------------------------------------------------------------------*/
+
+bfloat16 float8_e4m3_to_bfloat16(float8_e4m3, float_status *status);
+bfloat16 float8_e5m2_to_bfloat16(float8_e5m2, float_status *status);
+float8_e4m3 bfloat16_to_float8_e4m3(bfloat16, bool saturate, float_status *status);
+float8_e5m2 bfloat16_to_float8_e5m2(bfloat16, bool saturate, float_status *status);
+float8_e4m3 float32_to_float8_e4m3(float32, bool saturate, float_status *status);
+float8_e5m2 float32_to_float8_e5m2(float32, bool saturate, float_status *status);
+
+/*----------------------------------------------------------------------------
+| Software OCP operations.
+*----------------------------------------------------------------------------*/
+
+bool float8_e4m3_is_quiet_nan(float8_e4m3, float_status *status);
+bool float8_e4m3_is_signaling_nan(float8_e4m3, float_status *status);
+bool float8_e5m2_is_quiet_nan(float8_e5m2, float_status *status);
+bool float8_e5m2_is_signaling_nan(float8_e5m2, float_status *status);
+
+static inline bool float8_e4m3_is_any_nan(float8_e4m3 a)
+{
+    return ((float8_e4m3_val(a) & ~0x80) == 0x7f);
+}
+
+static inline bool float8_e5m2_is_any_nan(float8_e5m2 a)
+{
+    return ((float8_e5m2_val(a) & ~0x80) > 0x7c);
+}
+
+static inline bool float8_e4m3_is_neg(float8_e4m3 a)
+{
+    return float8_e4m3_val(a) >> 7;
+}
+
+static inline bool float8_e5m2_is_neg(float8_e5m2 a)
+{
+    return float8_e5m2_val(a) >> 7;
+}
+
+static inline bool float8_e4m3_is_infinity(float8_e4m3 a)
+{
+    return false;
+}
+
+static inline bool float8_e5m2_is_infinity(float8_e5m2 a)
+{
+    return (float8_e5m2_val(a) & 0x7f) == 0x7c;
+}
+
+static inline bool float8_e4m3_is_zero(float8_e4m3 a)
+{
+    return (float8_e4m3_val(a) & 0x7f) == 0;
+}
+
+static inline bool float8_e5m2_is_zero(float8_e5m2 a)
+{
+    return (float8_e5m2_val(a) & 0x7f) == 0;
+}
+
+static inline bool float8_e4m3_is_zero_or_denormal(float8_e4m3 a)
+{
+    return (float8_e4m3_val(a) & 0x78) == 0;
+}
+
+static inline bool float8_e5m2_is_zero_or_denormal(float8_e5m2 a)
+{
+    return (float8_e5m2_val(a) & 0x7c) == 0;
+}
+
+static inline bool float8_e4m3_is_normal(float8_e4m3 a)
+{
+    uint8_t em = float8_e4m3_val(a) & 0x7f;
+    return em >= 0x8 && em <= 0x7e;
+}
+
+static inline bool float8_e5m2_is_normal(float8_e5m2 a)
+{
+    return (((float8_e5m2_val(a) >> 2) + 1) & 0x1f) >= 2;
+}
+
+/*----------------------------------------------------------------------------
 | Software half-precision conversion routines.
 *----------------------------------------------------------------------------*/
 

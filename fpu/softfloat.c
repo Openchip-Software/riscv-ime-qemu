@@ -522,6 +522,13 @@ typedef struct {
 #define DECOMPOSED_BINARY_POINT    63
 #define DECOMPOSED_IMPLICIT_BIT    (1ull << DECOMPOSED_BINARY_POINT)
 
+/*
+ * Sentinel value for normal_frac_max indicating "all fraction values at
+ * exp_max are normal" (i.e., the format has no NaN encoding at exp_max).
+ * Used by E2M1 and ARM Alternative Half Precision formats.
+ */
+#define NORMAL_FRAC_MAX_ALL        0
+
 /* Structure holding all of the relevant parameters for a format.
  *   exp_size: the size of the exponent field
  *   exp_bias: the offset applied to the exponent field
@@ -542,10 +549,38 @@ typedef struct {
     int exp_max;
     int frac_size;
     int frac_shift;
-    bool arm_althp;
     bool has_explicit_bit;
     uint64_t round_mask;
+    /*
+     * Format capability flags:
+     * no_infinity: Format has no infinity encoding. When true, exp=exp_max
+     *   with frac=0 is NOT infinity - it's either NaN or max normal.
+     *
+     * limited_nan: Format has limited or no NaN patterns. When combined
+     *   with normal_frac_max, determines NaN encoding capability:
+     *   - limited_nan=false: Standard IEEE NaN (exp=exp_max, frac!=0)
+     *   - limited_nan=true && normal_frac_max!=0: Limited NaN (E4M3)
+     *   - limited_nan=true && normal_frac_max==0: No NaN encoding (AHP, E2M1)
+     *
+     * overflow_raises_invalid: Raise Invalid (not Overflow) exception.
+     *   ARM Alt HP uses this to signal overflow as an invalid operation.
+     *
+     * normal_frac_max: For formats with limited_nan, the maximum fraction
+     *   value (after normalization shift, including implicit bit) that is
+     *   still considered normal at exp=exp_max.
+     *   Use NORMAL_FRAC_MAX_ALL (0) to indicate all frac values at exp_max
+     *   are normal (E2M1, ARM Alt HP), which also implies no NaN encoding.
+     */
+    bool no_infinity;
+    bool limited_nan;
+    bool overflow_raises_invalid;
+    uint64_t normal_frac_max;
 } FloatFmt;
+
+static inline bool fmt_has_nan_encoding(const FloatFmt *fmt)
+{
+    return !fmt->limited_nan || fmt->normal_frac_max != NORMAL_FRAC_MAX_ALL;
+}
 
 /* Expand fields based on the size of exponent and fraction */
 #define FLOAT_PARAMS_(E)                                \
@@ -560,13 +595,27 @@ typedef struct {
     .frac_shift     = (-F - 1) & 63,                    \
     .round_mask     = (1ull << ((-F - 1) & 63)) - 1
 
+static const FloatFmt float8_e4m3_params = {
+    FLOAT_PARAMS(4, 3),
+    .no_infinity = true,
+    .limited_nan = true,
+    .normal_frac_max = 0xE000000000000000ULL,
+};
+
+static const FloatFmt float8_e5m2_params = {
+    FLOAT_PARAMS(5, 2),
+};
+
 static const FloatFmt float16_params = {
     FLOAT_PARAMS(5, 10)
 };
 
 static const FloatFmt float16_params_ahp = {
     FLOAT_PARAMS(5, 10),
-    .arm_althp = true
+    .no_infinity = true,
+    .limited_nan = true,
+    .overflow_raises_invalid = true,
+    .normal_frac_max = NORMAL_FRAC_MAX_ALL,
 };
 
 static const FloatFmt bfloat16_params = {
@@ -612,6 +661,16 @@ static void unpack_raw64(FloatParts64 *r, const FloatFmt *fmt, uint64_t raw)
         .exp = extract64(raw, f_size, e_size),
         .frac = extract64(raw, 0, f_size)
     };
+}
+
+static void QEMU_FLATTEN float8_e4m3_unpack_raw(FloatParts64 *p, float8_e4m3 f)
+{
+    unpack_raw64(p, &float8_e4m3_params, f);
+}
+
+static void QEMU_FLATTEN float8_e5m2_unpack_raw(FloatParts64 *p, float8_e5m2 f)
+{
+    unpack_raw64(p, &float8_e5m2_params, f);
 }
 
 static void QEMU_FLATTEN float16_unpack_raw(FloatParts64 *p, float16 f)
@@ -669,6 +728,16 @@ static uint64_t pack_raw64(const FloatParts64 *p, const FloatFmt *fmt)
     ret = deposit64(ret, f_size, e_size, p->exp);
     ret = deposit64(ret, 0, f_size, p->frac);
     return ret;
+}
+
+static float8_e4m3 QEMU_FLATTEN float8_e4m3_pack_raw(const FloatParts64 *p)
+{
+    return make_float8_e4m3(pack_raw64(p, &float8_e4m3_params));
+}
+
+static float8_e5m2 QEMU_FLATTEN float8_e5m2_pack_raw(const FloatParts64 *p)
+{
+    return make_float8_e5m2(pack_raw64(p, &float8_e5m2_params));
 }
 
 static float16 QEMU_FLATTEN float16_pack_raw(const FloatParts64 *p)
@@ -758,12 +827,26 @@ static void parts128_canonicalize(FloatParts128 *p, float_status *status,
     PARTS_GENERIC_64_128(canonicalize, A)(A, S, F)
 
 static void parts64_uncanon_normal(FloatParts64 *p, float_status *status,
-                                   const FloatFmt *fmt);
+                                   const FloatFmt *fmt, bool saturate);
 static void parts128_uncanon_normal(FloatParts128 *p, float_status *status,
-                                    const FloatFmt *fmt);
+                                    const FloatFmt *fmt, bool saturate);
 
-#define parts_uncanon_normal(A, S, F) \
-    PARTS_GENERIC_64_128(uncanon_normal, A)(A, S, F)
+#define parts_uncanon_normal(A, S, F, SAT) \
+    PARTS_GENERIC_64_128(uncanon_normal, A)(A, S, F, SAT)
+
+static void parts64_uncanon_sat(FloatParts64 *p, float_status *status,
+                                const FloatFmt *fmt, bool saturate);
+static void parts128_uncanon_sat(FloatParts128 *p, float_status *status,
+                                 const FloatFmt *fmt, bool saturate);
+
+#define parts_uncanon_sat(A, S, F, SAT) \
+    PARTS_GENERIC_64_128(uncanon_sat, A)(A, S, F, SAT)
+
+static void parts64_set_max_normal(FloatParts64 *p, const FloatFmt *fmt);
+static void parts128_set_max_normal(FloatParts128 *p, const FloatFmt *fmt);
+
+#define parts_set_max_normal(P, F) \
+    PARTS_GENERIC_64_128(set_max_normal, P)(P, F)
 
 static void parts64_uncanon(FloatParts64 *p, float_status *status,
                             const FloatFmt *fmt);
@@ -1662,6 +1745,20 @@ static const uint16_t rsqrt_tab[128] = {
  * Pack/unpack routines with a specific FloatFmt.
  */
 
+static void float8_e4m3_unpack_canonical(FloatParts64 *p, float8_e4m3 f,
+                                         float_status *s)
+{
+    float8_e4m3_unpack_raw(p, f);
+    parts_canonicalize(p, s, &float8_e4m3_params);
+}
+
+static void float8_e5m2_unpack_canonical(FloatParts64 *p, float8_e5m2 f,
+                                         float_status *s)
+{
+    float8_e5m2_unpack_raw(p, f);
+    parts_canonicalize(p, s, &float8_e5m2_params);
+}
+
 static void float16a_unpack_canonical(FloatParts64 *p, float16 f,
                                       float_status *s, const FloatFmt *params)
 {
@@ -1680,6 +1777,24 @@ static void bfloat16_unpack_canonical(FloatParts64 *p, bfloat16 f,
 {
     bfloat16_unpack_raw(p, f);
     parts_canonicalize(p, s, &bfloat16_params);
+}
+
+static float8_e4m3 float8_e4m3_round_pack_canonical(FloatParts64 *p,
+                                                    float_status *status,
+                                                    const FloatFmt *params,
+                                                    const bool saturate)
+{
+    parts_uncanon_sat(p, status, params, saturate);
+    return float8_e4m3_pack_raw(p);
+}
+
+static float8_e5m2 float8_e5m2_round_pack_canonical(FloatParts64 *p,
+                                                    float_status *status,
+                                                    const FloatFmt *params,
+                                                    const bool saturate)
+{
+    parts_uncanon_sat(p, status, params, saturate);
+    return float8_e5m2_pack_raw(p);
 }
 
 static float16 float16a_round_pack_canonical(FloatParts64 *p,
@@ -1838,7 +1953,7 @@ static floatx80 floatx80_round_pack_canonical(FloatParts128 *p,
     case float_class_normal:
     case float_class_denormal:
         if (s->floatx80_rounding_precision == floatx80_precision_x) {
-            parts_uncanon_normal(p, s, fmt);
+            parts_uncanon_normal(p, s, fmt, false);
             frac = p->frac_hi;
             exp = p->exp;
         } else {
@@ -1847,7 +1962,7 @@ static floatx80 floatx80_round_pack_canonical(FloatParts128 *p,
             p64.sign = p->sign;
             p64.exp = p->exp;
             frac_truncjam(&p64, p);
-            parts_uncanon_normal(&p64, s, fmt);
+            parts_uncanon_normal(&p64, s, fmt, false);
             frac = p64.frac;
             exp = p64.exp;
         }
@@ -2821,6 +2936,66 @@ static void parts_float_to_float_widen(FloatParts128 *a, FloatParts64 *b,
     if (a->cls == float_class_denormal) {
         float_raise(float_flag_input_denormal_used, s);
     }
+}
+
+bfloat16 float8_e4m3_to_bfloat16(float8_e4m3 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8_e4m3_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+
+    return bfloat16_round_pack_canonical(&p, s);
+}
+
+bfloat16 float8_e5m2_to_bfloat16(float8_e5m2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8_e5m2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+
+    return bfloat16_round_pack_canonical(&p, s);
+}
+
+float8_e4m3 bfloat16_to_float8_e4m3(bfloat16 a, bool saturate, float_status *s)
+{
+    FloatParts64 p;
+
+    bfloat16_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8_e4m3_round_pack_canonical(&p, s, &float8_e4m3_params,
+                                            saturate);
+}
+
+float8_e5m2 bfloat16_to_float8_e5m2(bfloat16 a, bool saturate, float_status *s)
+{
+    FloatParts64 p;
+
+    bfloat16_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8_e5m2_round_pack_canonical(&p, s, &float8_e5m2_params,
+                                            saturate);
+}
+
+float8_e4m3 float32_to_float8_e4m3(float32 a, bool saturate, float_status *s)
+{
+    FloatParts64 p;
+
+    float32_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8_e4m3_round_pack_canonical(&p, s, &float8_e4m3_params,
+                                            saturate);
+}
+
+float8_e5m2 float32_to_float8_e5m2(float32 a, bool saturate, float_status *s)
+{
+    FloatParts64 p;
+
+    float32_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8_e5m2_round_pack_canonical(&p, s, &float8_e5m2_params,
+                                            saturate);
 }
 
 float32 float16_to_float32(float16 a, bool ieee, float_status *s)

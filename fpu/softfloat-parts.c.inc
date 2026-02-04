@@ -227,11 +227,28 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
             p->exp = fmt->frac_shift - fmt->exp_bias
                    - shift + !has_pseudo_denormals;
         }
-    } else if (likely(p->exp < fmt->exp_max) || fmt->arm_althp) {
+    } else if (likely(p->exp < fmt->exp_max)) {
         p->cls = float_class_normal;
         p->exp -= fmt->exp_bias;
         frac_shl(p, fmt->frac_shift);
         p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
+    } else if (fmt->limited_nan) {
+        /*
+         * Formats with limited NaN encodings (E4M3, E2M1, ARM Alt HP).
+         */
+        frac_shl(p, fmt->frac_shift);
+        p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
+        if (fmt->normal_frac_max == NORMAL_FRAC_MAX_ALL ||
+            p->frac_hi <= fmt->normal_frac_max) {
+            p->cls = float_class_normal;
+            p->exp -= fmt->exp_bias;
+        } else {
+            if (parts_is_snan_frac(p->frac_hi, status)) {
+                p->cls = float_class_snan;
+            } else {
+                p->cls = float_class_qnan;
+            }
+        }
     } else if (likely(frac_eqz(p))) {
         p->cls = float_class_inf;
     } else {
@@ -242,13 +259,38 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
 }
 
 /*
+ * Set FloatPartsN to the maximum normal value for the given format.
+ * - IEEE formats (!no_infinity): exp = exp_max - 1, frac = all ones
+ * - Limited NaN formats (E4M3): exp = exp_max, frac = normal_frac_max
+ * - No NaN/InF formats (E2M1, ARM AHP): exp = exp_max, frac = all ones
+ */
+static void partsN(set_max_normal)(FloatPartsN *p, const FloatFmt *fmt)
+{
+    if (!fmt->no_infinity) {
+        p->exp = fmt->exp_max - 1;
+        frac_allones(p);
+    } else if (fmt->normal_frac_max != NORMAL_FRAC_MAX_ALL) {
+        p->exp = fmt->exp_max;
+        frac_clear(p);
+        p->frac_hi = fmt->normal_frac_max;
+    } else {
+        p->exp = fmt->exp_max;
+        frac_allones(p);
+    }
+}
+
+/*
  * Round and uncanonicalize a floating-point number by parts. There
  * are FRAC_SHIFT bits that may require rounding at the bottom of the
  * fraction; these bits will be removed. The exponent will be biased
  * by EXP_BIAS and must be bounded by [EXP_MAX-1, 0].
+ *
+ * The saturate parameter controls saturation behavior for formats that
+ * support it (OCP FP8 E4M3/E5M2). When true, overflow produces max normal
+ * instead of infinity (E5M2) or NaN (E4M3).
  */
 static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
-                                   const FloatFmt *fmt)
+                                   const FloatFmt *fmt, bool saturate)
 {
     const int exp_max = fmt->exp_max;
     const int frac_shift = fmt->frac_shift;
@@ -256,8 +298,8 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
     const uint64_t frac_lsb = round_mask + 1;
     const uint64_t frac_lsbm1 = round_mask ^ (round_mask >> 1);
     const uint64_t roundeven_mask = round_mask | frac_lsb;
+    bool overflow_norm = saturate;
     uint64_t inc;
-    bool overflow_norm = false;
     int exp, flags = 0;
 
     switch (s->float_rounding_mode) {
@@ -313,30 +355,64 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
             }
             p->frac_lo &= ~round_mask;
         }
+        p->exp = exp;
 
-        if (fmt->arm_althp) {
-            /* ARM Alt HP eschews Inf and NaN for a wider exponent.  */
-            if (unlikely(exp > exp_max)) {
-                /* Overflow.  Return the maximum normal.  */
-                flags = float_flag_invalid;
-                exp = exp_max;
-                frac_allones(p);
-                p->frac_lo &= ~round_mask;
+        /*
+         * Unified overflow handling based on format capabilities.
+         * 1. Format has infinity -> overflow to infinity (or saturate)
+         * 2. Format has NaN but no infinity -> overflow to NaN (or saturate)
+         * 3. Format has neither -> always saturate
+         */
+        if (!fmt->no_infinity) {
+            if (unlikely(exp >= exp_max)) {
+                flags |= float_flag_overflow;
+                if (s->rebias_overflow) {
+                    exp -= fmt->exp_re_bias;
+                } else if (overflow_norm) {
+                    flags |= float_flag_inexact;
+                    parts_set_max_normal(p, fmt);
+                    exp = p->exp;
+                    p->frac_lo &= ~round_mask;
+                } else {
+                    flags |= float_flag_inexact;
+                    p->cls = float_class_inf;
+                    exp = exp_max;
+                    frac_clear(p);
+                }
             }
-        } else if (unlikely(exp >= exp_max)) {
-            flags |= float_flag_overflow;
-            if (s->rebias_overflow) {
-                exp -= fmt->exp_re_bias;
-            } else if (overflow_norm) {
+        } else if (fmt_has_nan_encoding(fmt)) {
+            bool is_overflow = (exp > exp_max) ||
+                               (exp == exp_max &&
+                                p->frac_hi > fmt->normal_frac_max);
+
+            if (unlikely(is_overflow)) {
+                flags |= float_flag_overflow;
                 flags |= float_flag_inexact;
-                exp = exp_max - 1;
-                frac_allones(p);
+
+                if (overflow_norm) {
+                    parts_set_max_normal(p, fmt);
+                    exp = p->exp;
+                } else {
+                    uint8_t dnan = s->default_nan_pattern;
+                    p->cls = float_class_qnan;
+                    p->sign = dnan >> 7;
+                    exp = exp_max;
+                    frac_allones(p);
+                }
+            }
+        } else {
+            if (unlikely(exp > exp_max)) {
+                if (fmt->overflow_raises_invalid) {
+                    /* ARM Alt HP: raise Invalid, not Overflow */
+                    flags = float_flag_invalid;
+                } else {
+                    flags |= float_flag_overflow;
+                    flags |= float_flag_inexact;
+                }
+
+                parts_set_max_normal(p, fmt);
+                exp = p->exp;
                 p->frac_lo &= ~round_mask;
-            } else {
-                flags |= float_flag_inexact;
-                p->cls = float_class_inf;
-                exp = exp_max;
-                frac_clear(p);
             }
         }
         frac_shr(p, frac_shift);
@@ -422,11 +498,11 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
     float_raise(flags, s);
 }
 
-static void partsN(uncanon)(FloatPartsN *p, float_status *s,
-                            const FloatFmt *fmt)
+static void partsN(uncanon_sat)(FloatPartsN *p, float_status *s,
+                                const FloatFmt *fmt, bool saturate)
 {
     if (likely(is_anynorm(p->cls))) {
-        parts_uncanon_normal(p, s, fmt);
+        parts_uncanon_normal(p, s, fmt, saturate);
     } else {
         switch (p->cls) {
         case float_class_zero:
@@ -434,13 +510,30 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
             frac_clear(p);
             return;
         case float_class_inf:
-            g_assert(!fmt->arm_althp);
-            p->exp = fmt->exp_max;
-            frac_clear(p);
+            /*
+             * Unified infinity handling using format capabilities.
+             * Formats with no_infinity must convert infinity to something else
+             */
+            if (!fmt->no_infinity) {
+                p->exp = fmt->exp_max;
+                frac_clear(p);
+            } else if (fmt_has_nan_encoding(fmt)) {
+                if (saturate) {
+                    parts_set_max_normal(p, fmt);
+                } else {
+                    uint8_t dnan = s->default_nan_pattern;
+                    p->cls = float_class_qnan;
+                    p->sign = dnan >> 7;
+                    p->exp = fmt->exp_max;
+                    frac_allones(p);
+                }
+            } else {
+                parts_set_max_normal(p, fmt);
+            }
             return;
         case float_class_qnan:
         case float_class_snan:
-            g_assert(!fmt->arm_althp);
+            g_assert(fmt_has_nan_encoding(fmt));
             p->exp = fmt->exp_max;
             frac_shr(p, fmt->frac_shift);
             return;
@@ -449,6 +542,12 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
         }
         g_assert_not_reached();
     }
+}
+
+static void partsN(uncanon)(FloatPartsN *p, float_status *s,
+                            const FloatFmt *fmt)
+{
+    partsN(uncanon_sat)(p, s, fmt, false);
 }
 
 /*
