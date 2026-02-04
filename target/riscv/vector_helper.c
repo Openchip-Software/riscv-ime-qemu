@@ -5121,6 +5121,7 @@ RVVCALL(OPFVV1, vfncvt_sat_f_f_q_ofp8e5m2, QOP_UU_B, H1, H4,
 GEN_VEXT_V_ENV(vfncvt_sat_f_f_q_ofp8e4m3, 1)
 GEN_VEXT_V_ENV(vfncvt_sat_f_f_q_ofp8e5m2, 1)
 
+/* Zvfofp4min: vfext.vf2 - OFP4 E2M1 to OFP8 E4M3 conversion */
 /*
  * Vector Reduction Operations
  */
@@ -5920,3 +5921,35 @@ GEN_VEXT_INT_EXT(vsext_vf2_d, int64_t, int32_t, H8, H4)
 GEN_VEXT_INT_EXT(vsext_vf4_w, int32_t, int8_t,  H4, H1)
 GEN_VEXT_INT_EXT(vsext_vf4_d, int64_t, int16_t, H8, H2)
 GEN_VEXT_INT_EXT(vsext_vf8_d, int64_t, int8_t,  H8, H1)
+
+
+void HELPER(vfext_vf2)(void *vd, void *v0, void *vs2, CPURISCVState *env,
+                       uint32_t desc)
+{
+    float_status fp_status = env->fp_status;
+    uint32_t vl = env->vl;
+    uint32_t vm = vext_vm(desc);
+    uint32_t esz = sizeof(uint8_t);
+    uint32_t total_elems = vext_get_total_elems(env, desc, esz);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env, vl);
+
+    for (i = env->vstart; i < vl; ++i) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * esz, (i + 1) * esz);
+            continue;
+        }
+
+        uint8_t input = *((uint8_t *)vs2 + H1((i % 2 ? i - 1 : i) / 2));
+        input = (i % 2) ? ((input >> 4) & 0xf) : (input & 0xf);
+        *((uint8_t *)vd + H1(i)) = float4_e2m1_to_float8_e4m3(input,
+                                                              &fp_status);
+    }
+    env->vstart = 0;
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vta, vl * esz, total_elems * esz);
+}
