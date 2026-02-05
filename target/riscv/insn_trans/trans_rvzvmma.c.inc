@@ -16,6 +16,8 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "fpu/softfloat.h"
+
 #define REQUIRE_ZVMMA(ctx) do {                 \
     if (!ctx->cfg_ptr->ext_zvmma) {             \
         return false;                           \
@@ -48,12 +50,12 @@ static void element_to_regoffset (uint16_t a, uint16_t b, enum direction dir,
     *bitoff = bit_off;
 }
 
-#define GEN_ZVMMA_VMMACC_VV(NAME, TD, T1, T2, TX1, TX2, WIDENING)       \
-    void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
+#define GEN_ZVMMA_VMMACC_VV(NAME, TD, T1, T2, TX1, TX2,	OP)		\
+    void HELPER(NAME)(void *vd, void *v0, void *vs1,			\
                   void *vs2, CPURISCVState *env,                        \
                   uint32_t desc)                                        \
 {                                                                       \
-    const uint8_t  widening = WIDENING;                                 \
+    const uint8_t  widening = sizeof(TD) / sizeof(T1);                  \
     const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;                   \
     const uint8_t  vsew = FIELD_EX64(env->vtype, VTYPE, VSEW);          \
     const uint8_t  sewb = 1 << vsew;                                    \
@@ -97,10 +99,9 @@ static void element_to_regoffset (uint16_t a, uint16_t b, enum direction dir,
             uint16_t byteoff;                                           \
             uint8_t bitoff;                                             \
                                                                         \
-            TD t = 0;                                                   \
-                                                                        \
             element_to_regoffset(r, c, dir, lambda, sewb, 1, &regoff, &byteoff, &bitoff); \
-            TD *c_elem = (TD*)(vd + regoff * vlenb + byteoff);          \
+            TD *c_elem_ptr = (TD*)(vd + regoff * vlenb + byteoff);      \
+            TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             /* Calculate T[r, c] */                                     \
             for (int k = 0; k < k_eff; ++k)                             \
@@ -109,44 +110,124 @@ static void element_to_regoffset (uint16_t a, uint16_t b, enum direction dir,
                 TX1 a = *(T1*)(vs1 + regoff * vlenb + byteoff);         \
                 element_to_regoffset(k, c, COLUMN_MAJOR, lambda, sewb, widening, &regoff, &byteoff, &bitoff); \
                 TX2 b = *(T2*)(vs2 + regoff * vlenb + byteoff);         \
-                t += a * b;                                             \
+                c_elem = OP(a, b, c_elem);                              \
             }                                                           \
                                                                         \
-            /* Accumulate T[r,c] into C[r,c] */                         \
-            *c_elem += t;                                               \
+            *c_elem_ptr = c_elem;                                       \
         }                                                               \
     }                                                                   \
 }
 
-GEN_ZVMMA_VMMACC_VV(vmmacc_vv_b, int8_t, int8_t, int8_t, int8_t, int8_t, 1);
-GEN_ZVMMA_VMMACC_VV(vmmacc_vv_h, int16_t, int16_t, int16_t, int16_t, int16_t, 1);
-GEN_ZVMMA_VMMACC_VV(vmmacc_vv_w, int32_t, int32_t, int32_t, int32_t, int32_t, 1);
-GEN_ZVMMA_VMMACC_VV(vmmacc_vv_d, int64_t, int64_t, int64_t, int64_t, int64_t, 1);
-GEN_ZVMMA_VMMACC_VV(vwmmacc_vv_h, int16_t, int8_t, int8_t, int16_t, int16_t, 2);
-GEN_ZVMMA_VMMACC_VV(vwmmacc_vv_w, int32_t, int16_t, int16_t, int32_t, int32_t, 2);
-GEN_ZVMMA_VMMACC_VV(vwmmacc_vv_d, int64_t, int32_t, int32_t, int64_t, int64_t, 2);
-GEN_ZVMMA_VMMACC_VV(vqwmmacc_vv_w, int32_t, int8_t, int8_t, int32_t, int32_t, 4);
-GEN_ZVMMA_VMMACC_VV(vqwmmacc_vv_d, int64_t, int16_t, int16_t, int64_t, int64_t, 4);
+#define DO_MACC(N, M, D) (M * N + D)
 
-GEN_ZVMMA_VMMACC_VV(vfmmacc_vv_s, float, float, float, float, float, 1);
-GEN_ZVMMA_VMMACC_VV(vfmmacc_vv_d, double, double, double, double, double, 1);
-GEN_ZVMMA_VMMACC_VV(vfwmmacc_vv_d, double, float, float, double, double, 2);
+/* (TD, T1, T2, TX1, TX2) */
+/* TODO: when merging into vector_helper.c, the following are duplicates */
+#define OP_SSS_B int8_t, int8_t, int8_t, int8_t, int8_t
+#define OP_SSS_H int16_t, int16_t, int16_t, int16_t, int16_t
+#define OP_SSS_W int32_t, int32_t, int32_t, int32_t, int32_t
+#define OP_SSS_D int64_t, int64_t, int64_t, int64_t, int64_t
+#define WOP_SSS_B int16_t, int8_t, int8_t, int16_t, int16_t
+#define WOP_SSS_H int32_t, int16_t, int16_t, int32_t, int32_t
+#define WOP_SSS_W int64_t, int32_t, int32_t, int64_t, int64_t
+/* TODO: when merging into vector_helper.c, the following are new */
+#define QWOP_SSS_H int32_t, int8_t, int8_t, int32_t, int32_t
+#define QWOP_SSS_W int64_t, int16_t, int16_t, int64_t, int64_t
+#define QWOP_UUU_H uint64_t, uint16_t, uint16_t, uint64_t, uint64_t
+
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vmmacc_vv_b, OP_SSS_B, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vmmacc_vv_h, OP_SSS_H, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vmmacc_vv_w, OP_SSS_W, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vmmacc_vv_d, OP_SSS_D, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vwmmacc_vv_h, WOP_SSS_B, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vwmmacc_vv_w, WOP_SSS_H, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vwmmacc_vv_d, WOP_SSS_W, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vqwmmacc_vv_w, QWOP_SSS_H, DO_MACC)
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vqwmmacc_vv_d, QWOP_SSS_W, DO_MACC)
+
+static float_status  fstatus;
+static float_status *fs = &fstatus;
+
+/* Vector Single-Width Floating-Point Fused Multiply-Add Instructions */
+static uint16_t fmacc16(uint16_t a, uint16_t b, uint16_t d)
+{
+    return float16_muladd(a, b, d, 0, fs);
+}
+
+static uint16_t fmacc16bf(uint16_t a, uint16_t b, uint16_t d)
+{
+    return bfloat16_muladd(a, b, d, 0, fs);
+}
+
+static uint32_t fmacc32(uint32_t a, uint32_t b, uint32_t d)
+{
+    return float32_muladd(a, b, d, 0, fs);
+}
+
+static uint64_t fmacc64(uint64_t a, uint64_t b, uint64_t d)
+{
+    return float64_muladd(a, b, d, 0, fs);
+}
+
+/* Vector Widening Floating-Point Fused Multiply-Add Instructions */
+static uint32_t fwmacc16(uint16_t a, uint16_t b, uint32_t d)
+{
+    return float32_muladd(float16_to_float32(a, true, fs),
+                          float16_to_float32(b, true, fs), d, 0, fs);
+}
+
+static uint32_t fwmacc16bf(uint16_t a, uint16_t b, uint32_t d)
+{
+    return float32_muladd(bfloat16_to_float32(a, fs),
+                          bfloat16_to_float32(b, fs), d, 0, fs);
+}
+
+static uint64_t fwmacc32(uint32_t a, uint32_t b, uint64_t d)
+{
+    return float64_muladd(float32_to_float64(a, fs),
+                          float32_to_float64(b, fs), d, 0, fs);
+}
+
+static uint64_t fqwmacc16(uint16_t a, uint16_t b, uint64_t d)
+{
+    return float64_muladd(float16_to_float64(a, true, fs),
+                          float16_to_float64(b, true, fs), d, 0, fs);
+}
+
+static uint64_t fqwmacc16bf(uint16_t a, uint16_t b, uint64_t d)
+{
+    return float64_muladd(bfloat16_to_float64(a, fs),
+                          bfloat16_to_float64(b, fs), d, 0, fs);
+}
+
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_h, OP_UUU_H, fmacc16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_h_altfmt, OP_UUU_H, fmacc16bf);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_s, OP_UUU_W, fmacc32);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_d, OP_UUU_D, fmacc64);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_s, WOP_UUU_H, fwmacc16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_s_altfmt, WOP_UUU_H, fwmacc16bf);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_d, WOP_UUU_W, fwmacc32);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_d, QWOP_UUU_H, fqwmacc16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_d_altfmt, QWOP_UUU_H, fqwmacc16bf);
 
 typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
 
 static bool trans_vmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
-	REQUIRE_ZVMMA(s);
+        REQUIRE_ZVMMA(s);
 
         if (vext_check_isa_ill(s) &&
             require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
 
-            static gen_helper_vmmacc * const fns[2][4] = {
+	    /* TODO(PRT): altfmt can not be evaluated during decode, as it
+	     *            may change between different executions of the
+	     *            instruction word (i.e., at the same address).
+	     */
+             static gen_helper_vmmacc * const fns[2][4] = {
                 /* altfmt = 0 */
                 { gen_helper_vmmacc_vv_b,
                   gen_helper_vmmacc_vv_h,
-		  gen_helper_vmmacc_vv_w,
+                  gen_helper_vmmacc_vv_w,
                   gen_helper_vmmacc_vv_d },
                 /* altfmt = 1 */
                 { NULL, NULL,
@@ -164,7 +245,7 @@ static bool trans_vmmacc_vv(DisasContext *s, arg_rmrr *a)
 
 static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
-	REQUIRE_ZVMMA(s);
+        REQUIRE_ZVMMA(s);
 
         if (vext_check_isa_ill(s) &&
             require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
@@ -173,7 +254,7 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
                 /* altfmt = 0 */
                 { NULL,
                   gen_helper_vwmmacc_vv_h,
-		  gen_helper_vwmmacc_vv_w,
+                  gen_helper_vwmmacc_vv_w,
                   gen_helper_vwmmacc_vv_d },
                 /* altfmt = 1 */
                 { NULL, NULL,
@@ -191,7 +272,7 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
 
 static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
-	REQUIRE_ZVMMA(s);
+        REQUIRE_ZVMMA(s);
 
         if (vext_check_isa_ill(s) &&
             require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
@@ -200,7 +281,7 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
                 /* altfmt = 0 */
                 { NULL,
                   NULL,
-		  gen_helper_vqwmmacc_vv_w,
+                  gen_helper_vqwmmacc_vv_w,
                   gen_helper_vqwmmacc_vv_d },
                 /* altfmt = 1 */
                 { NULL, NULL,
@@ -218,7 +299,7 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
 
 static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
-	REQUIRE_ZVMMA(s);
+        REQUIRE_ZVMMA(s);
 
         if (vext_check_isa_ill(s) &&
             require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
@@ -226,12 +307,14 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
             static gen_helper_vmmacc * const fns[2][4] = {
                 /* altfmt = 0 */
                 { NULL,
-                  NULL,
-		  gen_helper_vfmmacc_vv_s,
+                  gen_helper_vfmmacc_vv_h,
+                  gen_helper_vfmmacc_vv_s,
                   gen_helper_vfmmacc_vv_d },
                 /* altfmt = 1 */
-                { NULL, NULL,
-                  NULL, NULL }
+                { NULL,
+		  gen_helper_vfmmacc_vv_h_altfmt,
+                  NULL,
+		  NULL }
             };
 
             const bool altfmt = 0;
@@ -245,7 +328,7 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
 
 static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
-	REQUIRE_ZVMMA(s);
+        REQUIRE_ZVMMA(s);
 
         if (vext_check_isa_ill(s) &&
             require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
@@ -254,11 +337,13 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
                 /* altfmt = 0 */
                 { NULL,
                   NULL,
-		  NULL,
+                  gen_helper_vfwmmacc_vv_s,
                   gen_helper_vfwmmacc_vv_d },
                 /* altfmt = 1 */
-                { NULL, NULL,
-                  NULL, NULL }
+                { NULL,
+		  NULL,
+                  gen_helper_vfwmmacc_vv_s_altfmt,
+		  NULL }
             };
 
             const bool altfmt = 0;
@@ -272,5 +357,29 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
 
 static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
-    return false;
+        REQUIRE_ZVMMA(s);
+
+        if (vext_check_isa_ill(s) &&
+            require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
+
+            static gen_helper_vmmacc * const fns[2][4] = {
+                /* altfmt = 0 */
+                { NULL,
+                  NULL,
+                  NULL,
+                  gen_helper_vfqwmmacc_vv_d },
+                /* altfmt = 1 */
+                { NULL,
+		  NULL,
+                  NULL,
+		  gen_helper_vfqwmmacc_vv_d_altfmt }
+            };
+
+            const bool altfmt = 0;
+            gen_helper_vmmacc *fn = fns[altfmt][s->sew];
+            if (fn)
+                return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
+        }
+
+        return false;
 }

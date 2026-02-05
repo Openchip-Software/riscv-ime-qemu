@@ -1371,9 +1371,15 @@ DEF_HELPER_6(vwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vqwmmacc_vv_w, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vqwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
 
+DEF_HELPER_6(vfmmacc_vv_h, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfmmacc_vv_h_altfmt, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vfmmacc_vv_s, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vfmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfwmmacc_vv_s, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfwmmacc_vv_s_altfmt, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vfwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfqwmmacc_vv_d, void, ptr, ptr, ptr, ptr, env, i32)
+DEF_HELPER_6(vfqwmmacc_vv_d_altfmt, void, ptr, ptr, ptr, ptr, env, i32)
 
 /* TODO: These receive an extra argument until we decide
  *       how to pass the information whether dynamic (dyn)
