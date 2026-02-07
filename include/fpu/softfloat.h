@@ -222,6 +222,26 @@ bfloat16 float8_e5m2_to_bfloat16(float8_e5m2, float_status *status);
 float8_e5m2 bfloat16_to_float8_e5m2(bfloat16, bool sat, float_status *status);
 float8_e5m2 float32_to_float8_e5m2(float32, bool sat, float_status *status);
 
+float16 float8_e4m3_to_float16(float8_e4m3, float_status *status);
+float16 float8_e5m2_to_float16(float8_e5m2, float_status *status);
+float32 float8_e4m3_to_float32(float8_e4m3, float_status *status);
+float32 float8_e5m2_to_float32(float8_e5m2, float_status *status);
+float64 float8_e4m3_to_float64(float8_e4m3, float_status *status);
+float64 float8_e5m2_to_float64(float8_e5m2, float_status *status);
+
+/*----------------------------------------------------------------------------
+| OCP FP8 operations.
+*----------------------------------------------------------------------------*/
+
+float8_e4m3 float8_e4m3_muladd(float8_e4m3, float8_e4m3, float8_e4m3,
+                               int, float_status *status);
+float8_e4m3 float8_e4m3_muladd_scalbn(float8_e4m3, float8_e4m3, float8_e4m3,
+                                      int, int, float_status *status);
+float8_e5m2 float8_e5m2_muladd(float8_e5m2, float8_e5m2, float8_e5m2,
+                               int, float_status *status);
+float8_e5m2 float8_e5m2_muladd_scalbn(float8_e5m2, float8_e5m2, float8_e5m2,
+                                      int, int, float_status *status);
+
 /*----------------------------------------------------------------------------
 | Software half-precision conversion routines.
 *----------------------------------------------------------------------------*/
