@@ -193,8 +193,14 @@ float128 uint128_to_float128(Int128, float_status *status);
 | Software OCP conversion routines.
 *----------------------------------------------------------------------------*/
 
+float16 float8_e4m3_to_float16(float8_e4m3, float_status *status);
+float16 float8_e5m2_to_float16(float8_e5m2, float_status *status);
 bfloat16 float8_e4m3_to_bfloat16(float8_e4m3, float_status *status);
 bfloat16 float8_e5m2_to_bfloat16(float8_e5m2, float_status *status);
+float32 float8_e4m3_to_float32(float8_e4m3, float_status *status);
+float32 float8_e5m2_to_float32(float8_e5m2, float_status *status);
+float64 float8_e4m3_to_float64(float8_e4m3, float_status *status);
+float64 float8_e5m2_to_float64(float8_e5m2, float_status *status);
 float8_e4m3 bfloat16_to_float8_e4m3(bfloat16, bool saturate, float_status *status);
 float8_e5m2 bfloat16_to_float8_e5m2(bfloat16, bool saturate, float_status *status);
 float8_e4m3 float32_to_float8_e4m3(float32, bool saturate, float_status *status);
@@ -210,6 +216,14 @@ bool float8_e4m3_is_quiet_nan(float8_e4m3, float_status *status);
 bool float8_e4m3_is_signaling_nan(float8_e4m3, float_status *status);
 bool float8_e5m2_is_quiet_nan(float8_e5m2, float_status *status);
 bool float8_e5m2_is_signaling_nan(float8_e5m2, float_status *status);
+float8_e4m3 float8_e4m3_muladd(float8_e4m3, float8_e4m3, float8_e4m3,
+                               int, float_status *status);
+float8_e4m3 float8_e4m3_muladd_scalbn(float8_e4m3, float8_e4m3, float8_e4m3,
+                                      int, int, float_status *status);
+float8_e5m2 float8_e5m2_muladd(float8_e5m2, float8_e5m2, float8_e5m2,
+                               int, float_status *status);
+float8_e5m2 float8_e5m2_muladd_scalbn(float8_e5m2, float8_e5m2, float8_e5m2,
+                                      int, int, float_status *status);
 
 static inline bool float8_e4m3_is_any_nan(float8_e4m3 a)
 {
