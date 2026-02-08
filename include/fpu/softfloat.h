@@ -216,6 +216,14 @@ bool float8_e4m3_is_quiet_nan(float8_e4m3, float_status *status);
 bool float8_e4m3_is_signaling_nan(float8_e4m3, float_status *status);
 bool float8_e5m2_is_quiet_nan(float8_e5m2, float_status *status);
 bool float8_e5m2_is_signaling_nan(float8_e5m2, float_status *status);
+float8_e4m3 float8_e4m3_muladd(float8_e4m3, float8_e4m3, float8_e4m3,
+                               int, float_status *status);
+float8_e4m3 float8_e4m3_muladd_scalbn(float8_e4m3, float8_e4m3, float8_e4m3,
+                                      int, int, float_status *status);
+float8_e5m2 float8_e5m2_muladd(float8_e5m2, float8_e5m2, float8_e5m2,
+                               int, float_status *status);
+float8_e5m2 float8_e5m2_muladd_scalbn(float8_e5m2, float8_e5m2, float8_e5m2,
+                                      int, int, float_status *status);
 
 static inline bool float8_e4m3_is_any_nan(float8_e4m3 a)
 {

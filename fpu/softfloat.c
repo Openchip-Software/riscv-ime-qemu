@@ -2367,6 +2367,56 @@ floatx80_mul(floatx80 a, floatx80 b, float_status *status)
  * Fused multiply-add
  */
 
+float8_e4m3 QEMU_FLATTEN
+float8_e4m3_muladd_scalbn(float8_e4m3 a, float8_e4m3 b, float8_e4m3 c,
+                          int scale, int flags, float_status *status)
+{
+    FloatParts64 pa, pb, pc, *pr;
+
+    float16_unpack_canonical(&pa, a, status);
+    float16_unpack_canonical(&pb, b, status);
+    float16_unpack_canonical(&pc, c, status);
+    pr = parts_muladd_scalbn(&pa, &pb, &pc, scale, flags, status);
+
+    /* Round before applying negate result. */
+    parts_uncanon(pr, status, &float16_params);
+    if ((flags & float_muladd_negate_result) && !is_nan(pr->cls)) {
+        pr->sign ^= 1;
+    }
+    return float8_e4m3_pack_raw(pr);
+}
+
+float8_e4m3 float8_e4m3_muladd(float8_e4m3 a, float8_e4m3 b, float8_e4m3 c,
+                               int flags, float_status *status)
+{
+    return float8_e4m3_muladd_scalbn(a, b, c, 0, flags, status);
+}
+
+float8_e5m2 QEMU_FLATTEN
+float8_e5m2_muladd_scalbn(float8_e5m2 a, float8_e5m2 b, float8_e5m2 c,
+                          int scale, int flags, float_status *status)
+{
+    FloatParts64 pa, pb, pc, *pr;
+
+    float16_unpack_canonical(&pa, a, status);
+    float16_unpack_canonical(&pb, b, status);
+    float16_unpack_canonical(&pc, c, status);
+    pr = parts_muladd_scalbn(&pa, &pb, &pc, scale, flags, status);
+
+    /* Round before applying negate result. */
+    parts_uncanon(pr, status, &float16_params);
+    if ((flags & float_muladd_negate_result) && !is_nan(pr->cls)) {
+        pr->sign ^= 1;
+    }
+    return float8_e5m2_pack_raw(pr);
+}
+
+float8_e4m3 float8_e5m2_muladd(float8_e5m2 a, float8_e5m2 b, float8_e5m2 c,
+                               int flags, float_status *status)
+{
+    return float8_e5m2_muladd_scalbn(a, b, c, 0, flags, status);
+}
+
 float16 QEMU_FLATTEN
 float16_muladd_scalbn(float16 a, float16 b, float16 c,
                       int scale, int flags, float_status *status)
