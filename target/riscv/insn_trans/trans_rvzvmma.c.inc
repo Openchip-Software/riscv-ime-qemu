@@ -132,6 +132,7 @@ static void element_to_regoffset (uint16_t a, uint16_t b, enum direction dir,
 /* TODO: when merging into vector_helper.c, the following are new */
 #define QWOP_SSS_H int32_t, int8_t, int8_t, int32_t, int32_t
 #define QWOP_SSS_W int64_t, int16_t, int16_t, int64_t, int64_t
+#define QWOP_UUU_B uint64_t, uint8_t, uint8_t, uint64_t, uint64_t
 #define QWOP_UUU_H uint64_t, uint16_t, uint16_t, uint64_t, uint64_t
 
 RVVCALL(GEN_ZVMMA_VMMACC_VV, vmmacc_vv_b, OP_SSS_B, DO_MACC)
@@ -148,12 +149,22 @@ static float_status  fstatus;
 static float_status *fs = &fstatus;
 
 /* Vector Single-Width Floating-Point Fused Multiply-Add Instructions */
+static float8_e4m3 fmacc8_e4m3(uint8_t a, uint8_t b, uint8_t d)
+{
+    return float8_e4m3_muladd(a, b, d, 0, fs);
+}
+
+static float8_e5m2 fmacc8_e5m2(uint8_t a, uint8_t b, uint8_t d)
+{
+    return float8_e5m2_muladd(a, b, d, 0, fs);
+}
+
 static uint16_t fmacc16(uint16_t a, uint16_t b, uint16_t d)
 {
     return float16_muladd(a, b, d, 0, fs);
 }
 
-static uint16_t fmacc16bf(uint16_t a, uint16_t b, uint16_t d)
+static uint16_t fmacc16_bfloat16(uint16_t a, uint16_t b, uint16_t d)
 {
     return bfloat16_muladd(a, b, d, 0, fs);
 }
@@ -169,13 +180,25 @@ static uint64_t fmacc64(uint64_t a, uint64_t b, uint64_t d)
 }
 
 /* Vector Widening Floating-Point Fused Multiply-Add Instructions */
+static uint16_t fwmacc8_e4m3(uint8_t a, uint8_t b, uint8_t d)
+{
+    return float16_muladd(float8_e4m3_to_float16(a, fs),
+                          float8_e4m3_to_float16(b, fs), d, 0, fs);
+}
+
+static uint16_t fwmacc8_e5m2(uint8_t a, uint8_t b, uint8_t d)
+{
+    return float16_muladd(float8_e5m2_to_float16(a, fs),
+                          float8_e5m2_to_float16(b, fs), d, 0, fs);
+}
+
 static uint32_t fwmacc16(uint16_t a, uint16_t b, uint32_t d)
 {
     return float32_muladd(float16_to_float32(a, true, fs),
                           float16_to_float32(b, true, fs), d, 0, fs);
 }
 
-static uint32_t fwmacc16bf(uint16_t a, uint16_t b, uint32_t d)
+static uint32_t fwmacc16_bfloat16(uint16_t a, uint16_t b, uint32_t d)
 {
     return float32_muladd(bfloat16_to_float32(a, fs),
                           bfloat16_to_float32(b, fs), d, 0, fs);
@@ -185,6 +208,18 @@ static uint64_t fwmacc32(uint32_t a, uint32_t b, uint64_t d)
 {
     return float64_muladd(float32_to_float64(a, fs),
                           float32_to_float64(b, fs), d, 0, fs);
+}
+
+static uint64_t fqwmacc8_e4m3(uint8_t a, uint8_t b, uint64_t d)
+{
+    return float64_muladd(float8_e4m3_to_float64(a, fs),
+                          float8_e4m3_to_float64(b, fs), d, 0, fs);
+}
+
+static uint64_t fqwmacc8_e5m2(uint8_t a, uint8_t b, uint64_t d)
+{
+    return float64_muladd(float8_e5m2_to_float64(a, fs),
+                          float8_e5m2_to_float64(b, fs), d, 0, fs);
 }
 
 static uint64_t fqwmacc16(uint16_t a, uint16_t b, uint64_t d)
@@ -199,15 +234,21 @@ static uint64_t fqwmacc16bf(uint16_t a, uint16_t b, uint64_t d)
                           bfloat16_to_float64(b, fs), d, 0, fs);
 }
 
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_h, OP_UUU_H, fmacc16);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_h_altfmt, OP_UUU_H, fmacc16bf);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_s, OP_UUU_W, fmacc32);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_d, OP_UUU_D, fmacc64);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_s, WOP_UUU_H, fwmacc16);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_s_altfmt, WOP_UUU_H, fwmacc16bf);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_d, WOP_UUU_W, fwmacc32);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_d, QWOP_UUU_H, fqwmacc16);
-RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_d_altfmt, QWOP_UUU_H, fqwmacc16bf);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_e4m3, OP_UUU_B, fmacc8_e4m3);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_e5m2, OP_UUU_B, fmacc8_e5m2);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_f16,  OP_UUU_H, fmacc16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_bf16, OP_UUU_H, fmacc16_bfloat16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_f32,  OP_UUU_W, fmacc32);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfmmacc_vv_f64,  OP_UUU_D, fmacc64);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_f16_e4m3, WOP_UUU_B, fwmacc8_e4m3);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_f16_e5m2, WOP_UUU_B, fwmacc8_e5m2);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_f32_f16, WOP_UUU_H, fwmacc16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_f32_bf16, WOP_UUU_H, fwmacc16_bfloat16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfwmmacc_vv_f64_f32, WOP_UUU_W, fwmacc32);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_f32_e4m3, QWOP_UUU_B, fqwmacc8_e4m3);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_f32_e5m2, QWOP_UUU_B, fqwmacc8_e5m2);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_f64_f16, QWOP_UUU_H, fqwmacc16);
+RVVCALL(GEN_ZVMMA_VMMACC_VV, vfqwmmacc_vv_f64_bf16, QWOP_UUU_H, fqwmacc16bf);
 
 typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
@@ -234,7 +275,7 @@ static bool trans_vmmacc_vv(DisasContext *s, arg_rmrr *a)
                   NULL, NULL }
             };
 
-            const bool  altfmt = false;
+            const bool  altfmt = s->altfmt;
             gen_helper_vmmacc *fn = fns[altfmt][s->sew];
             if (fn)
                 return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -261,7 +302,7 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
                   NULL, NULL }
             };
 
-            const bool altfmt = 0;
+            const bool altfmt = s->altfmt;
             gen_helper_vmmacc *fn = fns[altfmt][s->sew];
             if (fn)
                 return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -288,7 +329,7 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
                   NULL, NULL }
             };
 
-            const bool altfmt = 0;
+            const bool altfmt = s->altfmt;
             gen_helper_vmmacc *fn = fns[altfmt][s->sew];
             if (fn)
                 return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -306,18 +347,18 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
 
             static gen_helper_vmmacc * const fns[2][4] = {
                 /* altfmt = 0 */
-                { NULL,
-                  gen_helper_vfmmacc_vv_h,
-                  gen_helper_vfmmacc_vv_s,
-                  gen_helper_vfmmacc_vv_d },
+                { gen_helper_vfmmacc_vv_e4m3,
+                  gen_helper_vfmmacc_vv_f16,
+                  gen_helper_vfmmacc_vv_f32,
+                  gen_helper_vfmmacc_vv_f64 },
                 /* altfmt = 1 */
-                { NULL,
-		  gen_helper_vfmmacc_vv_h_altfmt,
+                { gen_helper_vfmmacc_vv_e5m2,
+		  gen_helper_vfmmacc_vv_bf16,
                   NULL,
 		  NULL }
             };
 
-            const bool altfmt = 0;
+            const bool altfmt = s->altfmt;
             gen_helper_vmmacc *fn = fns[altfmt][s->sew];
             if (fn)
                 return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -336,17 +377,17 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
             static gen_helper_vmmacc * const fns[2][4] = {
                 /* altfmt = 0 */
                 { NULL,
-                  NULL,
-                  gen_helper_vfwmmacc_vv_s,
-                  gen_helper_vfwmmacc_vv_d },
+                  gen_helper_vfwmmacc_vv_f16_e4m3,
+                  gen_helper_vfwmmacc_vv_f32_f16,
+                  gen_helper_vfwmmacc_vv_f64_f32 },
                 /* altfmt = 1 */
                 { NULL,
-		  NULL,
-                  gen_helper_vfwmmacc_vv_s_altfmt,
+		  gen_helper_vfwmmacc_vv_f16_e5m2,
+                  gen_helper_vfwmmacc_vv_f32_bf16,
 		  NULL }
             };
 
-            const bool altfmt = 0;
+            const bool altfmt = s->altfmt;
             gen_helper_vmmacc *fn = fns[altfmt][s->sew];
             if (fn)
                 return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -366,16 +407,16 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
                 /* altfmt = 0 */
                 { NULL,
                   NULL,
-                  NULL,
-                  gen_helper_vfqwmmacc_vv_d },
+                  gen_helper_vfqwmmacc_vv_f32_e4m3,
+                  gen_helper_vfqwmmacc_vv_f64_f16 },
                 /* altfmt = 1 */
                 { NULL,
 		  NULL,
-                  NULL,
-		  gen_helper_vfqwmmacc_vv_d_altfmt }
+                  gen_helper_vfqwmmacc_vv_f32_e5m2,
+		  gen_helper_vfqwmmacc_vv_f64_bf16 }
             };
 
-            const bool altfmt = 0;
+            const bool altfmt = s->altfmt;
             gen_helper_vmmacc *fn = fns[altfmt][s->sew];
             if (fn)
                 return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
