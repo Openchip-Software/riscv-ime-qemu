@@ -193,6 +193,8 @@ float128 uint128_to_float128(Int128, float_status *status);
 | Software OCP conversion routines.
 *----------------------------------------------------------------------------*/
 
+float16 float8_e4m3_to_float16(float8_e4m3, float_status *status);
+float16 float8_e5m2_to_float16(float8_e5m2, float_status *status);
 bfloat16 float8_e4m3_to_bfloat16(float8_e4m3, float_status *status);
 bfloat16 float8_e5m2_to_bfloat16(float8_e5m2, float_status *status);
 float32 float8_e4m3_to_float32(float8_e4m3, float_status *status);
