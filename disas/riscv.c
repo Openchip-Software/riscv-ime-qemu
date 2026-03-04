@@ -994,6 +994,16 @@ typedef enum {
     rv_op_vfncvt_f_f_q = 962,
     rv_op_vfncvt_sat_f_f_q = 963,
     rv_op_vfext_vf2 = 964,
+    rv_op_vmmacc_vv = 965,
+    rv_op_vwmmacc_vv = 966,
+    rv_op_vqwmmacc_vv = 967,
+    rv_op_vfmmacc_vv = 968,
+    rv_op_vfwmmacc_vv = 969,
+    rv_op_vfqwmmacc_vv = 970,
+    rv_op_vmtl_v = 971,
+    rv_op_vmttl_v = 972,
+    rv_op_vmts_v = 973,
+    rv_op_vmtts_v = 974,
 } rv_op;
 
 /* register names */
@@ -2273,6 +2283,16 @@ const rv_opcode_data rvi_opcode_data[] = {
     { "vfncvt.f.f.q", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
     { "vfncvt.sat.f.f.q", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
     { "vfext.vf2", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
+    { "vmmacc.vv", rv_codec_v_r, rv_fmt_vd_vs1_vs2_vm, NULL, 0, 0, 0 },
+    { "vwmmacc.vv", rv_codec_v_r, rv_fmt_vd_vs1_vs2_vm, NULL, 0, 0, 0 },
+    { "vqwmmacc.vv", rv_codec_v_r, rv_fmt_vd_vs1_vs2_vm, NULL, 0, 0, 0 },
+    { "vfmmacc.vv", rv_codec_v_r, rv_fmt_vd_vs1_vs2_vm, NULL, 0, 0, 0 },
+    { "vfwmmacc.vv", rv_codec_v_r, rv_fmt_vd_vs1_vs2_vm, NULL, 0, 0, 0 },
+    { "vfqwmmacc.vv", rv_codec_v_r, rv_fmt_vd_vs1_vs2_vm, NULL, 0, 0, 0 },
+    { "vmtl.v", rv_codec_v_r, rv_fmt_ldst_vd_rs1_rs2_vm, NULL, 0, 0, 0 },
+    { "vmttl.v", rv_codec_v_r, rv_fmt_ldst_vd_rs1_rs2_vm, NULL, 0, 0, 0 },
+    { "vmts.v", rv_codec_v_r, rv_fmt_ldst_vd_rs1_rs2_vm, NULL, 0, 0, 0 },
+    { "vmtts.v", rv_codec_v_r, rv_fmt_ldst_vd_rs1_rs2_vm, NULL, 0, 0, 0 },
 };
 
 /* CSR names */
@@ -2886,6 +2906,8 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
                 case 1: op = rv_op_vluxei64_v; break;
                 case 2: op = rv_op_vlse64_v; break;
                 case 3: op = rv_op_vloxei64_v; break;
+                case 4: op = rv_op_vmtl_v; break;
+                case 5: op = rv_op_vmttl_v; break;
                 }
                 break;
             }
@@ -3102,6 +3124,8 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
                 case 1: op = rv_op_vsuxei64_v; break;
                 case 2: op = rv_op_vsse64_v; break;
                 case 3: op = rv_op_vsoxei64_v; break;
+                case 4: op = rv_op_vmts_v; break;
+                case 5: op = rv_op_vmtts_v; break;
                 }
                 break;
             }
@@ -3633,6 +3657,9 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
                 case 48: op = rv_op_vwredsumu_vs; break;
                 case 49: op = rv_op_vwredsum_vs; break;
                 case 53: op = rv_op_vwsll_vv; break;
+                case 56: op = rv_op_vmmacc_vv; break;
+                case 57: op = rv_op_vwmmacc_vv; break;
+                case 58: op = rv_op_vqwmmacc_vv; break;
                 }
                 break;
             case 1:
@@ -3691,6 +3718,9 @@ static void decode_inst_opcode(rv_decode *dec, rv_isa isa)
                     case 16: op = rv_op_vfclass_v; break;
                     }
                     break;
+                case 20: op = rv_op_vfmmacc_vv; break;
+                case 21: op = rv_op_vfwmmacc_vv; break;
+                case 22: op = rv_op_vfqwmmacc_vv; break;
                 case 24: op = rv_op_vmfeq_vv; break;
                 case 25: op = rv_op_vmfle_vv; break;
                 case 27: op = rv_op_vmflt_vv; break;
