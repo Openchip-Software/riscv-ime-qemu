@@ -1487,6 +1487,8 @@ DEF_HELPER_6(vfqwmmacc_vv_bf16_e2m1_e3m0, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vfqwmmacc_vv_f16_e3m0_e2m1, void, ptr, ptr, ptr, ptr, env, i32)
 DEF_HELPER_6(vfqwmmacc_vv_bf16_e3m0_e2m1, void, ptr, ptr, ptr, ptr, env, i32)
 
+DEF_HELPER_FLAGS_5(zvvmm_fmacc_elem, TCG_CALL_NO_RWG, i64, env, i64, i64, i64, i32)
+
 /* CFI (zicfiss) helpers */
 #ifndef CONFIG_USER_ONLY
 DEF_HELPER_1(ssamoswap_disabled, void, env)

@@ -1038,6 +1038,229 @@ static uint16_t fqwmacc4_e3m0xe2m1_bf16(uint32_t a_raw, uint32_t b_raw,
         float4_e2m1_to_bfloat16(make_float4_e2m1(b_raw), fs),
         d, 0, fs);
 }
+
+#define ZVVMM_JIT_OP_BUDGET 400
+
+/*
+ * Opcode enum for the generic per-element FP MACC helper.
+ * Each value selects one of the per-element callback functions above.
+ */
+enum {
+    /* vfmmacc same-width (widening=1) */
+    ZVVMM_FE_E4M3, ZVVMM_FE_E5M2,
+    ZVVMM_FE_E4M3_TO_E5M2, ZVVMM_FE_E5M2_TO_E4M3,
+    ZVVMM_FE_E4M3XE5M2, ZVVMM_FE_E4M3XE5M2_TO_E5M2,
+    ZVVMM_FE_E5M2XE4M3, ZVVMM_FE_E5M2XE4M3_TO_E5M2,
+    ZVVMM_FE_F16, ZVVMM_FE_BF16,
+    ZVVMM_FE_F16XBF16, ZVVMM_FE_F16XBF16_TO_BF16,
+    ZVVMM_FE_BF16XF16, ZVVMM_FE_BF16XF16_TO_BF16,
+    ZVVMM_FE_F32, ZVVMM_FE_F64,
+
+    /* vfwmmacc widening=2, byte-aligned inputs */
+    ZVVMM_FE_W_E4M3, ZVVMM_FE_W_E5M2,
+    ZVVMM_FE_W_E4M3_BF16, ZVVMM_FE_W_E5M2_BF16,
+    ZVVMM_FE_W_E4M3XE5M2, ZVVMM_FE_W_E5M2XE4M3,
+    ZVVMM_FE_W_E4M3XE5M2_BF16, ZVVMM_FE_W_E5M2XE4M3_BF16,
+    ZVVMM_FE_W_F16, ZVVMM_FE_W_BF16,
+    ZVVMM_FE_W_F16XBF16, ZVVMM_FE_W_BF16XF16,
+    ZVVMM_FE_W_F32,
+
+    /* vfwmmacc widening=2, FP4 nibble inputs */
+    ZVVMM_FE_W4_E2M1, ZVVMM_FE_W4_E3M0,
+    ZVVMM_FE_W4_E2M1_E5M2, ZVVMM_FE_W4_E3M0_E5M2,
+    ZVVMM_FE_W4_E2M1XE3M0, ZVVMM_FE_W4_E3M0XE2M1,
+    ZVVMM_FE_W4_E2M1XE3M0_E5M2, ZVVMM_FE_W4_E3M0XE2M1_E5M2,
+
+    /* vfqwmmacc widening=4, byte-aligned inputs */
+    ZVVMM_FE_Q_E4M3, ZVVMM_FE_Q_E5M2,
+    ZVVMM_FE_Q_E4M3XE5M2, ZVVMM_FE_Q_E5M2XE4M3,
+    ZVVMM_FE_Q_F16, ZVVMM_FE_Q_BF16,
+    ZVVMM_FE_Q_F16XBF16, ZVVMM_FE_Q_BF16XF16,
+
+    /* vfqwmmacc widening=4, FP4 nibble inputs */
+    ZVVMM_FE_Q4_E2M1, ZVVMM_FE_Q4_E3M0,
+    ZVVMM_FE_Q4_E2M1_BF16, ZVVMM_FE_Q4_E3M0_BF16,
+    ZVVMM_FE_Q4_E2M1XE3M0, ZVVMM_FE_Q4_E3M0XE2M1,
+    ZVVMM_FE_Q4_E2M1XE3M0_BF16, ZVVMM_FE_Q4_E3M0XE2M1_BF16,
+
+    ZVVMM_FE_COUNT
+};
+
+/*
+ * Generic per-element FP MACC helper.  Called from the JIT path for each
+ * (i,k) element pair.  The opcode selects the per-element callback.
+ */
+uint64_t HELPER(zvvmm_fmacc_elem)(CPURISCVState *env,
+                                   uint64_t a, uint64_t b,
+                                   uint64_t d, uint32_t op)
+{
+    float_status *fs = &env->fp_status;
+    switch (op) {
+    /* vfmmacc same-width */
+    case ZVVMM_FE_E4M3:              return fmacc8_e4m3(a, b, d, fs);
+    case ZVVMM_FE_E5M2:              return fmacc8_e5m2(a, b, d, fs);
+    case ZVVMM_FE_E4M3_TO_E5M2:     return fmacc8_e4m3_to_e5m2(a, b, d, fs);
+    case ZVVMM_FE_E5M2_TO_E4M3:     return fmacc8_e5m2_to_e4m3(a, b, d, fs);
+    case ZVVMM_FE_E4M3XE5M2:        return fmacc8_e4m3xe5m2(a, b, d, fs);
+    case ZVVMM_FE_E4M3XE5M2_TO_E5M2: return fmacc8_e4m3xe5m2_to_e5m2(a, b, d, fs);
+    case ZVVMM_FE_E5M2XE4M3:        return fmacc8_e5m2xe4m3(a, b, d, fs);
+    case ZVVMM_FE_E5M2XE4M3_TO_E5M2: return fmacc8_e5m2xe4m3_to_e5m2(a, b, d, fs);
+    case ZVVMM_FE_F16:               return fmacc16(a, b, d, fs);
+    case ZVVMM_FE_BF16:              return fmacc16_bfloat16(a, b, d, fs);
+    case ZVVMM_FE_F16XBF16:          return fmacc16_f16xbf16(a, b, d, fs);
+    case ZVVMM_FE_F16XBF16_TO_BF16:  return fmacc16_f16xbf16_to_bf16(a, b, d, fs);
+    case ZVVMM_FE_BF16XF16:          return fmacc16_bf16xf16(a, b, d, fs);
+    case ZVVMM_FE_BF16XF16_TO_BF16:  return fmacc16_bf16xf16_to_bf16(a, b, d, fs);
+    case ZVVMM_FE_F32:               return fmacc32(a, b, d, fs);
+    case ZVVMM_FE_F64:               return fmacc64(a, b, d, fs);
+
+    /* vfwmmacc widening=2, byte-aligned */
+    case ZVVMM_FE_W_E4M3:            return fwmacc8_e4m3(a, b, d, fs);
+    case ZVVMM_FE_W_E5M2:            return fwmacc8_e5m2(a, b, d, fs);
+    case ZVVMM_FE_W_E4M3_BF16:       return fwmacc8_e4m3_bf16(a, b, d, fs);
+    case ZVVMM_FE_W_E5M2_BF16:       return fwmacc8_e5m2_bf16(a, b, d, fs);
+    case ZVVMM_FE_W_E4M3XE5M2:       return fwmacc8_e4m3xe5m2(a, b, d, fs);
+    case ZVVMM_FE_W_E5M2XE4M3:       return fwmacc8_e5m2xe4m3(a, b, d, fs);
+    case ZVVMM_FE_W_E4M3XE5M2_BF16:  return fwmacc8_e4m3xe5m2_bf16(a, b, d, fs);
+    case ZVVMM_FE_W_E5M2XE4M3_BF16:  return fwmacc8_e5m2xe4m3_bf16(a, b, d, fs);
+    case ZVVMM_FE_W_F16:             return fwmacc16(a, b, d, fs);
+    case ZVVMM_FE_W_BF16:            return fwmacc16_bfloat16(a, b, d, fs);
+    case ZVVMM_FE_W_F16XBF16:        return fwmacc16_f16xbf16(a, b, d, fs);
+    case ZVVMM_FE_W_BF16XF16:        return fwmacc16_bf16xf16(a, b, d, fs);
+    case ZVVMM_FE_W_F32:             return fwmacc32(a, b, d, fs);
+
+    /* vfwmmacc widening=2, FP4 nibble */
+    case ZVVMM_FE_W4_E2M1:           return fwmacc4_e2m1(a, b, d, fs);
+    case ZVVMM_FE_W4_E3M0:           return fwmacc4_e3m0(a, b, d, fs);
+    case ZVVMM_FE_W4_E2M1_E5M2:      return fwmacc4_e2m1_e5m2(a, b, d, fs);
+    case ZVVMM_FE_W4_E3M0_E5M2:      return fwmacc4_e3m0_e5m2(a, b, d, fs);
+    case ZVVMM_FE_W4_E2M1XE3M0:      return fwmacc4_e2m1xe3m0(a, b, d, fs);
+    case ZVVMM_FE_W4_E3M0XE2M1:      return fwmacc4_e3m0xe2m1(a, b, d, fs);
+    case ZVVMM_FE_W4_E2M1XE3M0_E5M2: return fwmacc4_e2m1xe3m0_e5m2(a, b, d, fs);
+    case ZVVMM_FE_W4_E3M0XE2M1_E5M2: return fwmacc4_e3m0xe2m1_e5m2(a, b, d, fs);
+
+    /* vfqwmmacc widening=4, byte-aligned */
+    case ZVVMM_FE_Q_E4M3:            return fqwmacc8_e4m3(a, b, d, fs);
+    case ZVVMM_FE_Q_E5M2:            return fqwmacc8_e5m2(a, b, d, fs);
+    case ZVVMM_FE_Q_E4M3XE5M2:       return fqwmacc8_e4m3xe5m2(a, b, d, fs);
+    case ZVVMM_FE_Q_E5M2XE4M3:       return fqwmacc8_e5m2xe4m3(a, b, d, fs);
+    case ZVVMM_FE_Q_F16:             return fqwmacc16(a, b, d, fs);
+    case ZVVMM_FE_Q_BF16:            return fqwmacc16bf(a, b, d, fs);
+    case ZVVMM_FE_Q_F16XBF16:        return fqwmacc16_f16xbf16(a, b, d, fs);
+    case ZVVMM_FE_Q_BF16XF16:        return fqwmacc16_bf16xf16(a, b, d, fs);
+
+    /* vfqwmmacc widening=4, FP4 nibble */
+    case ZVVMM_FE_Q4_E2M1:           return fqwmacc4_e2m1(a, b, d, fs);
+    case ZVVMM_FE_Q4_E3M0:           return fqwmacc4_e3m0(a, b, d, fs);
+    case ZVVMM_FE_Q4_E2M1_BF16:      return fqwmacc4_e2m1_bf16(a, b, d, fs);
+    case ZVVMM_FE_Q4_E3M0_BF16:      return fqwmacc4_e3m0_bf16(a, b, d, fs);
+    case ZVVMM_FE_Q4_E2M1XE3M0:      return fqwmacc4_e2m1xe3m0(a, b, d, fs);
+    case ZVVMM_FE_Q4_E3M0XE2M1:      return fqwmacc4_e3m0xe2m1(a, b, d, fs);
+    case ZVVMM_FE_Q4_E2M1XE3M0_BF16: return fqwmacc4_e2m1xe3m0_bf16(a, b, d, fs);
+    case ZVVMM_FE_Q4_E3M0XE2M1_BF16: return fqwmacc4_e3m0xe2m1_bf16(a, b, d, fs);
+
+    default: g_assert_not_reached();
+    }
+}
+
+/*
+ * Emit the FP MACC triple-nested loop as TCG IR, with the i and k loops
+ * fully unrolled at translation time and element offsets baked in as
+ * compile-time constants.  Only the j-loop remains as a runtime TCG loop.
+ *
+ * Unlike the integer JIT path, TCG has no native FP operations, so each
+ * (i,k) element calls gen_helper_zvvmm_fmacc_elem with a compile-time
+ * constant opcode selecting the appropriate softfloat callback.
+ *
+ * Returns true on success; false if the config exceeds the op budget.
+ */
+static bool zvvmm_fp_macc_jit(DisasContext *s, arg_rmrr *a,
+                               int widening, int elem_op)
+{
+    const uint32_t vlenb       = s->cfg_ptr->vlenb;
+    const uint32_t lambda      = 1 << (s->vlambda - 1);
+    const uint32_t actual_lmul = 1 << s->lmul;
+    const uint32_t sew         = s->sew;
+    const uint32_t sewb        = 1 << sew;
+    const int      input_sew   = sew - ctz32(widening);
+    const uint32_t input_esz   = sewb / widening;
+    const bool     is_sub_byte = (input_sew < 0);
+
+    const uint32_t k_eff    = lambda * actual_lmul * widening;
+    const uint32_t M        = vlenb / (sewb * lambda);
+    const uint32_t mul_c    = vlenb / (sewb * lambda * lambda);
+    const uint32_t j_stride = lambda * sewb;
+
+    /* Budget: helper call ~2 ops, loads 1 each, extracts 1 each */
+    const int ops_per_k = is_sub_byte ? 6 : 4;
+    if (M * (2 + k_eff * ops_per_k) > ZVVMM_JIT_OP_BUDGET) {
+        return false;
+    }
+
+    /* --- Emit TCG IR --- */
+    TCGv t_n = tcg_temp_new();
+    tcg_gen_extu_i32_tl(t_n, cpu_vl);
+    tcg_gen_shri_tl(t_n, t_n, ctz32(k_eff));
+
+    TCGv t_j = tcg_temp_new();
+    tcg_gen_movi_tl(t_j, 0);
+
+    TCGv_ptr base_ptr = tcg_temp_new_ptr();
+    tcg_gen_mov_ptr(base_ptr, tcg_env);
+
+    TCGv_i64 acc  = tcg_temp_new_i64();
+    TCGv_i64 t_a  = tcg_temp_new_i64();
+    TCGv_i64 t_b  = tcg_temp_new_i64();
+    TCGv_i32 t_op = tcg_constant_i32(elem_op);
+
+    TCGLabel *loop_start = gen_new_label();
+    TCGLabel *loop_end   = gen_new_label();
+
+    gen_set_label(loop_start);
+    tcg_gen_brcond_tl(TCG_COND_GEU, t_j, t_n, loop_end);
+
+    for (uint32_t i = 0; i < M; i++) {
+        uint32_t c_off = tile_env_offset(s, a->rd, i, mul_c, lambda, sewb);
+        load_element(acc, base_ptr, c_off, sew, false);
+
+        for (uint32_t k = 0; k < k_eff; k++) {
+            if (is_sub_byte) {
+                int nib_a, nib_b;
+                uint32_t a_off = tile_env_nibble_offset(s, a->rs1,
+                                     i * k_eff + k, actual_lmul, lambda,
+                                     &nib_a);
+                uint32_t b_off = tile_env_nibble_offset(s, a->rs2,
+                                     k, actual_lmul, lambda, &nib_b);
+                load_nibble_element(t_a, tcg_env, a_off, nib_a, false);
+                load_nibble_element(t_b, base_ptr, b_off, nib_b, false);
+            } else {
+                uint32_t a_off = tile_env_offset(s, a->rs1,
+                                                  i * k_eff + k,
+                                                  actual_lmul, lambda,
+                                                  input_esz);
+                uint32_t b_off = tile_env_offset(s, a->rs2, k,
+                                                  actual_lmul, lambda,
+                                                  input_esz);
+                load_element(t_a, tcg_env, a_off, input_sew, false);
+                load_element(t_b, base_ptr, b_off, input_sew, false);
+            }
+            gen_helper_zvvmm_fmacc_elem(acc, tcg_env, t_a, t_b, acc, t_op);
+        }
+
+        store_element(acc, base_ptr, c_off, sew);
+    }
+
+    tcg_gen_addi_ptr(base_ptr, base_ptr, j_stride);
+    tcg_gen_addi_tl(t_j, t_j, 1);
+    tcg_gen_br(loop_start);
+
+    gen_set_label(loop_end);
+
+    tcg_gen_movi_i32(cpu_vstart, 0);
+    finalize_rvv_inst(s);
+    return true;
+}
+
 /* FP4 widening: 4-bit FP -> 8-bit FP accumulate */
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e4m3_e2m1, uint8_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fwmacc4_e2m1)
@@ -1088,8 +1311,6 @@ RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e3m0_e2m1, uint16_t,
 
 typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
-
-#define ZVVMM_JIT_OP_BUDGET 400
 
 /*
  * Compute log2(mul_c) for the accumulator tile register group.
@@ -1223,6 +1444,17 @@ static bool zvvmm_int_macc_jit(DisasContext *s, arg_rmrr *a,
     return true;
 }
 
+/*
+ * Integer MACC dispatch tables: fns[altfmt_a][altfmt_b][sew]
+ *
+ * Helper selection is performed at translation time based on altfmt_a,
+ * altfmt_b, and sew, which are all captured in the TB flags.  This is
+ * correct because vsetvl (which sets these fields in vtype) is a context-
+ * synchronising instruction that ends the current TB.  Any change to
+ * altfmt_a, altfmt_b, or sew therefore triggers TB lookup/recompilation
+ * with the new flag values, guaranteeing that the dispatch table index
+ * always matches the current vtype configuration.
+ */
 static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
                              gen_helper_vmmacc * const fns[2][2][4],
                              const uint32_t ext_offsets[4],
@@ -1263,7 +1495,9 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
  */
 static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
                               gen_helper_vmmacc * const fns[2][2][2][4],
-                              const uint32_t ext_offsets[2][2][4])
+                              const int elem_ops[2][2][2][4],
+                              const uint32_t ext_offsets[2][2][4],
+                              int widening)
 {
     if (!zvvmm_ext_check(s, ext_offsets[s->altfmt_a][s->altfmt][s->sew])) {
         return false;
@@ -1278,6 +1512,14 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
         require_align(a->rd, mul_c_log2) &&
         require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
 
+        /* Try JIT path for FP MACC */
+        int elem_op = elem_ops[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
+        if (elem_op >= 0 &&
+            zvvmm_fp_macc_jit(s, a, widening, elem_op)) {
+            return true;
+        }
+
+        /* Fall back to C helper */
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
         if (fn) {
             return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -1397,6 +1639,7 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
     };
     return zvvmm_macc_trans(s, a, fns, ext_offsets, 4);
 }
+
 static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
     static gen_helper_vmmacc * const fns[2][2][2][4] = {
@@ -1443,7 +1686,38 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
           { CPU_CFG_OFFSET(ext_zvvfmmofp8), CPU_CFG_OFFSET(ext_zvvfmmbf16),
             0, 0 } }
     };
-    return zvvmm_fmacc_trans(s, a, fns, ext_offsets);
+    static const int elem_ops[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { ZVVMM_FE_E4M3, ZVVMM_FE_F16,
+                  ZVVMM_FE_F32,  ZVVMM_FE_F64 },
+                { ZVVMM_FE_E4M3_TO_E5M2, -1, -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { ZVVMM_FE_E4M3XE5M2, ZVVMM_FE_F16XBF16, -1, -1 },
+                { ZVVMM_FE_E4M3XE5M2_TO_E5M2,
+                  ZVVMM_FE_F16XBF16_TO_BF16, -1, -1 }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { ZVVMM_FE_E5M2XE4M3, ZVVMM_FE_BF16XF16, -1, -1 },
+                { ZVVMM_FE_E5M2XE4M3_TO_E5M2,
+                  ZVVMM_FE_BF16XF16_TO_BF16, -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { ZVVMM_FE_E5M2_TO_E4M3, -1, -1, -1 },
+                { ZVVMM_FE_E5M2, ZVVMM_FE_BF16, -1, -1 }
+            }
+        }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, elem_ops, ext_offsets, 1);
 }
 
 static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1513,7 +1787,43 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
               0, 0 }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, ext_offsets);
+    static const int elem_ops[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { ZVVMM_FE_W4_E2M1, ZVVMM_FE_W_E4M3,
+                  ZVVMM_FE_W_F16,   ZVVMM_FE_W_F32 },
+                { ZVVMM_FE_W4_E2M1_E5M2, ZVVMM_FE_W_E4M3_BF16,
+                  -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { ZVVMM_FE_W4_E2M1XE3M0, ZVVMM_FE_W_E4M3XE5M2,
+                  ZVVMM_FE_W_F16XBF16, -1 },
+                { ZVVMM_FE_W4_E2M1XE3M0_E5M2, ZVVMM_FE_W_E4M3XE5M2_BF16,
+                  -1, -1 }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { ZVVMM_FE_W4_E3M0XE2M1, ZVVMM_FE_W_E5M2XE4M3,
+                  ZVVMM_FE_W_BF16XF16, -1 },
+                { ZVVMM_FE_W4_E3M0XE2M1_E5M2, ZVVMM_FE_W_E5M2XE4M3_BF16,
+                  -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { ZVVMM_FE_W4_E3M0, ZVVMM_FE_W_E5M2,
+                  ZVVMM_FE_W_BF16, -1 },
+                { ZVVMM_FE_W4_E3M0_E5M2, ZVVMM_FE_W_E5M2_BF16,
+                  -1, -1 }
+            }
+        }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, elem_ops, ext_offsets, 2);
 }
 
 static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1572,5 +1882,37 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
             { 0, CPU_CFG_OFFSET(ext_zvvfmmofp4bf16), 0, 0 }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, ext_offsets);
+    static const int elem_ops[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { -1, ZVVMM_FE_Q4_E2M1,
+                  ZVVMM_FE_Q_E4M3, ZVVMM_FE_Q_F16 },
+                { -1, ZVVMM_FE_Q4_E2M1_BF16, -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { -1, ZVVMM_FE_Q4_E2M1XE3M0,
+                  ZVVMM_FE_Q_E4M3XE5M2, ZVVMM_FE_Q_F16XBF16 },
+                { -1, ZVVMM_FE_Q4_E2M1XE3M0_BF16, -1, -1 }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { -1, ZVVMM_FE_Q4_E3M0XE2M1,
+                  ZVVMM_FE_Q_E5M2XE4M3, ZVVMM_FE_Q_BF16XF16 },
+                { -1, ZVVMM_FE_Q4_E3M0XE2M1_BF16, -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { -1, ZVVMM_FE_Q4_E3M0,
+                  ZVVMM_FE_Q_E5M2, ZVVMM_FE_Q_BF16 },
+                { -1, ZVVMM_FE_Q4_E3M0_BF16, -1, -1 }
+            }
+        }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, elem_ops, ext_offsets, 4);
 }
