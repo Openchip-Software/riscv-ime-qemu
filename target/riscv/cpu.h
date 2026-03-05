@@ -211,7 +211,9 @@ FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, ALTFMT, 8, 1)
-FIELD(VTYPE, RESERVED, 9, sizeof(uint64_t) * 8 - 10)
+FIELD(VTYPE, ALTFMT_A, 9, 1)
+FIELD(VTYPE, ALTFMT_B, 10, 1)
+FIELD(VTYPE, RESERVED, 11, sizeof(uint64_t) * 8 - 12)
 
 #ifndef CONFIG_USER_ONLY
 /* machine specific AIA ireg read-modify-write callback */
@@ -256,6 +258,8 @@ struct CPUArchState {
     /* vector coprocessor state. */
     uint64_t vreg[32 * RV_VLEN_MAX / 64] QEMU_ALIGNED(16);
     uint64_t vtype;
+    /* the left-aligned fields of vtype are stored separately */
+    uint64_t vlambda;
     uint32_t vl;
     uint32_t vstart;
     uint8_t vxrm;
@@ -750,6 +754,9 @@ FIELD(TB_FLAGS, PM_SIGNEXTEND, 31, 1)
 FIELD(EXT_TB_FLAGS, MISA_EXT, 0, 32)
 FIELD(EXT_TB_FLAGS, ALTFMT, 32, 1)
 FIELD(EXT_TB_FLAGS, BIG_ENDIAN, 33, 1)
+FIELD(EXT_TB_FLAGS, ALTFMT_A, 34, 1)
+FIELD(EXT_TB_FLAGS, ALTFMT_B, 35, 1)
+FIELD(EXT_TB_FLAGS, VLAMBDA, 36, 3)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)
@@ -930,6 +937,9 @@ static inline uint32_t vext_get_vlmax(uint32_t vlenb, uint32_t vsew,
      */
     return vlen >> (vsew + 3 - lmul);
 }
+
+void vext_vtype_init(CPURISCVState *env);
+void vext_vtype_set_vill(CPURISCVState *env);
 
 bool riscv_cpu_is_32bit(RISCVCPU *cpu);
 

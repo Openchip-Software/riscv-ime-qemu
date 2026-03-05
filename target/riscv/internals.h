@@ -95,6 +95,7 @@ FIELD(VDATA, VTA_ALL_1S, 5, 1)
 FIELD(VDATA, VMA, 6, 1)
 FIELD(VDATA, NF, 7, 4)
 FIELD(VDATA, WD, 7, 1)
+FIELD(VDATA, VLAMBDA, 11, 3)
 
 /* float point classify helpers */
 target_ulong fclass_h_bf16(uint64_t frs1);

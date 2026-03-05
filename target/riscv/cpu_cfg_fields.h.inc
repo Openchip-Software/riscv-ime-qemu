@@ -107,6 +107,40 @@ BOOL_FIELD(ext_zvfh)
 BOOL_FIELD(ext_zvfhmin)
 BOOL_FIELD(ext_zvfofp4min)
 BOOL_FIELD(ext_zvfofp8min)
+BOOL_FIELD(ext_zvvm)      /* shared IME infrastructure (lambda, vtype fields) */
+/* IME extension groups */
+BOOL_FIELD(ext_zvvmm)     /* integer MACC group */
+BOOL_FIELD(ext_zvvfmm)    /* FP MACC group */
+BOOL_FIELD(ext_zvvmtls)   /* tile load/store */
+/* IME integer (Zvvmm) sub-extensions */
+BOOL_FIELD(ext_zvvmmi4b)  /* Int4->Int8 */
+BOOL_FIELD(ext_zvvmmi4h)  /* Int4->Int16 */
+BOOL_FIELD(ext_zvvmmb)    /* Int8->Int8 */
+BOOL_FIELD(ext_zvvmmbh)   /* Int8->Int16 */
+BOOL_FIELD(ext_zvvmmbw)   /* Int8->Int32 */
+BOOL_FIELD(ext_zvvmmh)    /* Int16->Int16 */
+BOOL_FIELD(ext_zvvmmhw)   /* Int16->Int32 */
+BOOL_FIELD(ext_zvvmmhd)   /* Int16->Int64 */
+BOOL_FIELD(ext_zvvmmw)    /* Int32->Int32 */
+BOOL_FIELD(ext_zvvmmwd)   /* Int32->Int64 */
+BOOL_FIELD(ext_zvvmmd)    /* Int64->Int64 */
+/* IME FP (Zvvfmm) sub-extensions */
+BOOL_FIELD(ext_zvvfmmofp4opf8)  /* FP4->FP8 */
+BOOL_FIELD(ext_zvvfmmofp4h)     /* FP4->F16 */
+BOOL_FIELD(ext_zvvfmmofp4bf16)  /* FP4->BF16 */
+BOOL_FIELD(ext_zvvfmmofp8)      /* FP8->FP8 */
+BOOL_FIELD(ext_zvvfmmofp8h)     /* FP8->F16 */
+BOOL_FIELD(ext_zvvfmmofp8bf16)  /* FP8->BF16 */
+BOOL_FIELD(ext_zvvfmmofp8w)     /* FP8->F32 */
+BOOL_FIELD(ext_zvvfmmh)         /* F16->F16 */
+BOOL_FIELD(ext_zvvfmmhf)        /* F16->F32 */
+BOOL_FIELD(ext_zvvfmmhd)        /* F16->F64 */
+BOOL_FIELD(ext_zvvfmmbf16)      /* BF16->BF16 */
+BOOL_FIELD(ext_zvvfmmbf16f)     /* BF16->F32 */
+BOOL_FIELD(ext_zvvfmmbf16d)     /* BF16->F64 */
+BOOL_FIELD(ext_zvvfmmf)         /* F32->F32 */
+BOOL_FIELD(ext_zvvfmmfd)        /* F32->F64 */
+BOOL_FIELD(ext_zvvfmmd)         /* F64->F64 */
 BOOL_FIELD(ext_smaia)
 BOOL_FIELD(ext_ssaia)
 BOOL_FIELD(ext_smctr)
@@ -128,6 +162,9 @@ BOOL_FIELD(ext_svade)
 BOOL_FIELD(ext_zic64b)
 BOOL_FIELD(ext_ssstateen)
 BOOL_FIELD(ext_sha)
+
+/* Zvmma (IME) features */
+TYPED_FIELD(uint16_t, zvvm_lambda_supported, 0)
 
 /*
  * Always 'true' booleans for named features

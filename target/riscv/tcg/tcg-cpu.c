@@ -122,6 +122,8 @@ static TCGTBCPUState riscv_get_tb_cpu_state(CPUState *cs)
         /* lmul encoded as in DisasContext::lmul */
         int8_t lmul = sextract32(FIELD_EX64(env->vtype, VTYPE, VLMUL), 0, 3);
         uint8_t altfmt = FIELD_EX64(env->vtype, VTYPE, ALTFMT);
+        uint8_t altfmt_a = FIELD_EX64(env->vtype, VTYPE, ALTFMT_A);
+        uint8_t altfmt_b = FIELD_EX64(env->vtype, VTYPE, ALTFMT_B);
         uint32_t vsew = FIELD_EX64(env->vtype, VTYPE, VSEW);
         uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, vsew, lmul);
         uint32_t maxsz = vlmax << vsew;
@@ -138,6 +140,10 @@ static TCGTBCPUState riscv_get_tb_cpu_state(CPUState *cs)
                            FIELD_EX64(env->vtype, VTYPE, VMA));
         flags = FIELD_DP32(flags, TB_FLAGS, VSTART_EQ_ZERO, env->vstart == 0);
         ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, ALTFMT, altfmt);
+        ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, ALTFMT_A, altfmt_a);
+        ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, ALTFMT_B, altfmt_b);
+        ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, VLAMBDA,
+                               env->vlambda);
     } else {
         flags = FIELD_DP32(flags, TB_FLAGS, VILL, 1);
     }
@@ -1097,6 +1103,56 @@ static void cpu_enable_zilsd_implied_rules(RISCVCPU *cpu)
     }
 }
 
+static void cpu_enable_zvvm_implied_rules(RISCVCPU *cpu)
+{
+    /* Top-down: umbrella -> groups */
+    if (cpu->cfg.ext_zvvm) {
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmm), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmm), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmtls), true);
+    }
+
+    /* Integer group -> all integer sub-extensions */
+    if (cpu->cfg.ext_zvvmm) {
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmi4b), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmi4h), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmb), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmbh), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmbw), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmh), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmhw), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmhd), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmw), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmwd), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmd), true);
+    }
+
+    /* FP group -> all FP sub-extensions */
+    if (cpu->cfg.ext_zvvfmm) {
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp4opf8), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp4h), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp4bf16), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8h), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8bf16), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8w), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmh), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmhf), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmhd), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmbf16), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmbf16f), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmbf16d), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmf), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmfd), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmd), true);
+    }
+
+    /* Reverse: any group or sub-ext -> enable shared infrastructure */
+    if (cpu->cfg.ext_zvvmm || cpu->cfg.ext_zvvfmm || cpu->cfg.ext_zvvmtls) {
+        cpu->cfg.ext_zvvm = true;
+    }
+}
+
 static void riscv_cpu_enable_implied_rules(RISCVCPU *cpu)
 {
     RISCVCPUImpliedExtsRule *rule;
@@ -1107,6 +1163,9 @@ static void riscv_cpu_enable_implied_rules(RISCVCPU *cpu)
 
     /* Enable the implied extensions for Zilsd. */
     cpu_enable_zilsd_implied_rules(cpu);
+
+    /* Enable the implied extensions for Zvvm (IME). */
+    cpu_enable_zvvm_implied_rules(cpu);
 
     /* Enable the implied MISAs. */
     for (i = 0; (rule = riscv_misa_ext_implied_rules[i]); i++) {

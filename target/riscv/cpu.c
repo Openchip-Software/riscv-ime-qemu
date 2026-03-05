@@ -249,6 +249,52 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(zvksg, PRIV_VERSION_1_12_0, ext_zvksg),
     ISA_EXT_DATA_ENTRY(zvksh, PRIV_VERSION_1_12_0, ext_zvksh),
     ISA_EXT_DATA_ENTRY(zvkt, PRIV_VERSION_1_12_0, ext_zvkt),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvm, PRIV_VERSION_1_12_0, ext_zvvm),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmm, PRIV_VERSION_1_12_0, ext_zvvmm),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmm, PRIV_VERSION_1_12_0, ext_zvvfmm),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmtls, PRIV_VERSION_1_12_0, ext_zvvmtls),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmi4b, PRIV_VERSION_1_12_0,
+                                    ext_zvvmmi4b),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmi4h, PRIV_VERSION_1_12_0,
+                                    ext_zvvmmi4h),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmb, PRIV_VERSION_1_12_0, ext_zvvmmb),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmbh, PRIV_VERSION_1_12_0, ext_zvvmmbh),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmbw, PRIV_VERSION_1_12_0, ext_zvvmmbw),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmh, PRIV_VERSION_1_12_0, ext_zvvmmh),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmhw, PRIV_VERSION_1_12_0, ext_zvvmmhw),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmhd, PRIV_VERSION_1_12_0, ext_zvvmmhd),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmw, PRIV_VERSION_1_12_0, ext_zvvmmw),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmwd, PRIV_VERSION_1_12_0, ext_zvvmmwd),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvmmd, PRIV_VERSION_1_12_0, ext_zvvmmd),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp4opf8, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp4opf8),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp4h, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp4h),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp4bf16, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp4bf16),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp8, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp8),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp8h, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp8h),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp8bf16, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp8bf16),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmofp8w, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmofp8w),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmh, PRIV_VERSION_1_12_0, ext_zvvfmmh),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmhf, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmhf),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmhd, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmhd),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmbf16, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmbf16),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmbf16f, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmbf16f),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmbf16d, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmbf16d),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmf, PRIV_VERSION_1_12_0, ext_zvvfmmf),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmfd, PRIV_VERSION_1_12_0,
+                                    ext_zvvfmmfd),
+    ISA_EXPERIMENTAL_EXT_DATA_ENTRY(zvvfmmd, PRIV_VERSION_1_12_0, ext_zvvfmmd),
     ISA_EXT_DATA_ENTRY(zhinx, PRIV_VERSION_1_12_0, ext_zhinx),
     ISA_EXT_DATA_ENTRY(zhinxmin, PRIV_VERSION_1_12_0, ext_zhinxmin),
     ISA_EXT_DATA_ENTRY(sdtrig, PRIV_VERSION_1_12_0, debug),
@@ -1090,7 +1136,7 @@ static void riscv_cpu_reset_hold(Object *obj, ResetType type)
     set_default_nan_mode(1, &env->fp_status);
     /* Default NaN value: sign bit clear, frac msb set */
     set_float_default_nan_pattern(0b01000000, &env->fp_status);
-    env->vill = true;
+    vext_vtype_init(env);
 
 #ifndef CONFIG_USER_ONLY
 #ifdef CONFIG_TCG
@@ -1458,6 +1504,7 @@ static void riscv_cpu_init(Object *obj)
 #endif
     cpu->env.vext_ver = VEXT_VERSION_1_00_0;
     cpu->cfg.max_satp_mode = -1;
+    cpu->cfg.zvvm_lambda_supported = 0b1111111;
 
     if (mcc->def->profile) {
         mcc->def->profile->enabled = true;
@@ -1993,6 +2040,52 @@ static const PropertyInfo prop_elen = {
     .description = "elen",
     .get = prop_elen_get,
     .set = prop_elen_set,
+};
+
+static void prop_lambda_supported_set(Object *obj, Visitor *v, const char *name,
+                                      void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint16_t value;
+
+    if (!visit_type_uint16(v, name, &value, errp)) {
+        return;
+    }
+
+    if (cpu->cfg.ext_zvvm && !value) {
+        error_setg(errp, "IME: must support at least one lambda");
+        return;
+    }
+
+    if (value > 0b1111111) {
+        error_setg(errp, "IME: supported lambda (bitmask) has only 7 entries ({64, 32, 16, 8, 4, 2, 1})");
+        return;
+    }
+
+    if (value != cpu->cfg.zvvm_lambda_supported && riscv_cpu_is_vendor(obj)) {
+        cpu_set_prop_err(cpu, name, errp);
+        error_append_hint(errp, "Current '%s' val: %u\n",
+                          name, cpu->cfg.zvvm_lambda_supported);
+        return;
+    }
+
+    cpu_option_add_user_setting(cpu, name);
+    cpu->cfg.zvvm_lambda_supported = value;
+}
+
+static void prop_lambda_supported_get(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    uint16_t value = RISCV_CPU(obj)->cfg.zvvm_lambda_supported;
+
+    visit_type_uint16(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_zvvm_lambda = {
+    .type = "uint16",
+    .description = "zvvm-lambda-supported",
+    .get = prop_lambda_supported_get,
+    .set = prop_lambda_supported_set,
 };
 
 static void prop_cbom_blksize_set(Object *obj, Visitor *v, const char *name,
@@ -2886,6 +2979,8 @@ static const Property riscv_cpu_properties[] = {
 
     {.name = "vlen", .info = &prop_vlen},
     {.name = "elen", .info = &prop_elen},
+
+    {.name = "zvvm-lambda", .info = &prop_zvvm_lambda},
 
     {.name = "cbom_blocksize", .info = &prop_cbom_blksize},
     {.name = "cbop_blocksize", .info = &prop_cbop_blksize},
