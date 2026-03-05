@@ -125,6 +125,9 @@ typedef uint16_t bfloat16;
 typedef uint8_t float4_e2m1;
 typedef uint8_t float8_e4m3;
 typedef uint8_t float8_e5m2;
+typedef uint8_t float4_e3m0;
+#define make_float4_e2m1(x) ((x) & 0xf)
+#define make_float4_e3m0(x) ((x) & 0xf)
 
 /*
  * Software IEC/IEEE floating-point underflow tininess-detection mode.
