@@ -207,6 +207,13 @@ float8_e4m3 float32_to_float8_e4m3(float32, bool saturate, float_status *status)
 float8_e5m2 float32_to_float8_e5m2(float32, bool saturate, float_status *status);
 
 float8_e4m3 float4_e2m1_to_float8_e4m3(float4_e2m1, float_status *status);
+float8_e5m2 float4_e2m1_to_float8_e5m2(float4_e2m1, float_status *status);
+float16 float4_e2m1_to_float16(float4_e2m1, float_status *status);
+bfloat16 float4_e2m1_to_bfloat16(float4_e2m1, float_status *status);
+float8_e4m3 float4_e3m0_to_float8_e4m3(float4_e3m0, float_status *status);
+float8_e5m2 float4_e3m0_to_float8_e5m2(float4_e3m0, float_status *status);
+float16 float4_e3m0_to_float16(float4_e3m0, float_status *status);
+bfloat16 float4_e3m0_to_bfloat16(float4_e3m0, float_status *status);
 
 /*----------------------------------------------------------------------------
 | Software OCP operations.
@@ -325,6 +332,46 @@ static inline bool float4_e2m1_is_normal(float4_e2m1 a)
 {
     uint8_t em = float4_e2m1_val(a) & 0x7;
     return em >= 0x2 && em <= 0x7;
+}
+
+static inline bool float4_e3m0_is_quiet_nan(float4_e3m0 a, float_status *status)
+{
+    return false;
+}
+
+static inline bool float4_e3m0_is_signaling_nan(float4_e3m0 a, float_status *status)
+{
+    return false;
+}
+
+static inline bool float4_e3m0_is_any_nan(float4_e3m0 a)
+{
+    return false;
+}
+
+static inline bool float4_e3m0_is_neg(float4_e3m0 a)
+{
+    return float4_e3m0_val(a) >> 3;
+}
+
+static inline bool float4_e3m0_is_infinity(float4_e3m0 a)
+{
+    return false;
+}
+
+static inline bool float4_e3m0_is_zero(float4_e3m0 a)
+{
+    return (float4_e3m0_val(a) & 0x7) == 0;
+}
+
+static inline bool float4_e3m0_is_zero_or_denormal(float4_e3m0 a)
+{
+    return (float4_e3m0_val(a) & 0x7) == 0;
+}
+
+static inline bool float4_e3m0_is_normal(float4_e3m0 a)
+{
+    return (float4_e3m0_val(a) & 0x7) != 0;
 }
 
 /*----------------------------------------------------------------------------
