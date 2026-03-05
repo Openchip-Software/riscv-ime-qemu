@@ -47,6 +47,13 @@ static target_ulong vtype_reserved(CPURISCVState *env, target_ulong vtype)
                                            xlen - 1 - R_VTYPE_ALTFMT_SHIFT);
     }
 
+    /* Ignore the fields defined by Zvvm */
+    if (riscv_cpu_cfg(env)->ext_zvvm) {
+        reserved &= ~MAKE_64BIT_MASK(xlen - 4, 3); /* LAMBDA field */
+        reserved &= ~MAKE_64BIT_MASK(R_VTYPE_ALTFMT_A_SHIFT, 1);
+        reserved &= ~MAKE_64BIT_MASK(R_VTYPE_ALTFMT_B_SHIFT, 1);
+    }
+
     return reserved;
 }
 
@@ -57,6 +64,15 @@ static inline void reset_ill_vtype(CPURISCVState *env)
     env->vtype = 0;
     env->vl = 0;
     env->vstart = 0;
+}
+
+void vext_vtype_init(CPURISCVState *env)
+{
+    if (riscv_cpu_cfg(env)->ext_zvvm) {
+        env->vlambda = 0b001;
+    }
+
+    reset_ill_vtype(env);
 }
 
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
@@ -120,6 +136,16 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
     if (cpu->cfg.rvv_vsetvl_x0_vill && x0 && (env->vl != vl)) {
         reset_ill_vtype(env);
         return 0;
+    }
+    
+    target_ulong lambda = (s2 >> (xlen - 4)) & 0b111;
+
+    if (riscv_cpu_cfg(env)->ext_zvvm) {
+        if (lambda && riscv_cpu_cfg(env)->zvvm_lambda_supported & (1 << (lambda - 1)))
+            env->vlambda = lambda;
+
+        /* make sure that the Zvvm-specific bits don't make it into env->vtype */
+        s2 &= ~MAKE_64BIT_MASK(xlen - 4, 3); /* LAMBDA field */
     }
 
     env->vl = vl;
@@ -5970,7 +5996,6 @@ GEN_VEXT_INT_EXT(vsext_vf2_d, int64_t, int32_t, H8, H4)
 GEN_VEXT_INT_EXT(vsext_vf4_w, int32_t, int8_t,  H4, H1)
 GEN_VEXT_INT_EXT(vsext_vf4_d, int64_t, int16_t, H8, H2)
 GEN_VEXT_INT_EXT(vsext_vf8_d, int64_t, int8_t,  H8, H1)
-
 
 void HELPER(vfext_vf2)(void *vd, void *v0, void *vs2, CPURISCVState *env,
                        uint32_t desc)
