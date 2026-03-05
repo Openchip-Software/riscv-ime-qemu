@@ -6027,3 +6027,132 @@ void HELPER(vfext_vf2)(void *vd, void *v0, void *vs2, CPURISCVState *env,
     /* set tail elements to 1s */
     vext_set_elems_1s(vd, vta, vl * esz, total_elems * esz);
 }
+
+/* Vector Matrix Tile Load/Store (Zvtls) Extension */
+
+static void index_to_regoffset (uint16_t index, uint8_t lmul, uint8_t lambda, uint8_t *regoff, uint16_t *elementoff)
+{
+    uint16_t  linesize = lambda * lmul;
+    uint16_t  linenum = index / linesize;
+    uint16_t  elem_in_line = index % linesize;
+
+    *regoff = elem_in_line / lambda;
+    *elementoff = linenum * lambda + elem_in_line % lambda;
+}
+
+typedef target_ulong zvmtls_calc_elem_off_fn(uint32_t, uint32_t, uint32_t);
+
+static target_ulong zvmtls_preserve_order(uint32_t, uint32_t, uint32_t);
+static target_ulong zvmtls_transpose(uint32_t, uint32_t, uint32_t);
+
+static
+target_ulong zvmtls_preserve_order(uint32_t leading_dim, uint32_t line, uint32_t elem_in_line)
+{
+    return line * leading_dim + elem_in_line;
+}
+
+static
+target_ulong zvmtls_transpose(uint32_t leading_dim, uint32_t line, uint32_t elem_in_line)
+{
+    return elem_in_line * leading_dim + line;
+}
+
+static void
+zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
+                 target_ulong leading_dim,
+                 CPURISCVState *env, uint32_t desc, uint32_t vm,
+                 vext_ldst_elem_fn_tlb *ldst_elem,
+                 zvmtls_calc_elem_off_fn *calc_elem_off,
+                 uint32_t log2_esz, uintptr_t ra)
+{
+    const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;
+    const uint32_t lmul = 1 << vext_lmul(desc);
+    const uint32_t vlambda_imm = vext_vlambda(desc);
+    const uint32_t vlambda = vlambda_imm ? vlambda_imm : env->vlambda;
+    if (vlambda == 0)
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, ra);
+    const uint32_t lambda = 1 << (vlambda - 1);
+    const uint32_t esz = 1 << log2_esz;
+    const uint32_t vma = vext_vma(desc);
+
+    VSTART_CHECK_EARLY_EXIT(env, env->vl);
+
+    for (uint32_t i = env->vstart; i < env->vl; env->vstart = ++i) {
+        uint8_t  regoff;
+        uint16_t elementoff;
+        index_to_regoffset(i, lmul, lambda, &regoff, &elementoff);
+
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s if agnostic */
+            vext_set_elems_1s(vd + regoff * vlenb, vma,
+                              elementoff * esz,
+                              (elementoff + 1) * esz);
+            continue;
+        }
+
+        uint16_t  linesize = lambda * lmul;
+        uint16_t  line = i / linesize;
+        uint16_t  elem_in_line = i % linesize;
+
+        target_ulong elem_off = calc_elem_off(leading_dim, line, elem_in_line);
+        target_ulong addr = base + (elem_off << log2_esz);
+        ldst_elem(env, adjust_addr(env, addr), elementoff, vd + regoff * vlenb, ra);
+    }
+
+    env->vstart = 0;
+
+    /* Set tail elements (beyond vl) to all-1s when tail-agnostic */
+    const uint32_t vta = vext_vta(desc);
+    if (vta) {
+        const uint32_t max_elems = lmul * vlenb / esz;
+        for (uint32_t i = env->vl; i < max_elems; ++i) {
+            uint8_t  regoff;
+            uint16_t elementoff;
+            index_to_regoffset(i, lmul, lambda, &regoff, &elementoff);
+            memset(vd + regoff * vlenb + elementoff * esz, 0xff, esz);
+        }
+    }
+}
+
+#define GEN_ZVVM_LD_TILE(NAME, ETYPE, LOAD_FN, ADDRCALC_FN)            \
+void HELPER(NAME)(void *vd, void *v0, target_ulong base,                \
+                  target_ulong leading_dim, CPURISCVState *env,         \
+                  uint32_t desc)                                        \
+{                                                                       \
+    uint32_t vm = vext_vm(desc);                                        \
+    zvmtls_ldst_tile(vd, v0, base, leading_dim,                         \
+                     env, desc, vm, LOAD_FN, ADDRCALC_FN,               \
+                     ctzl(sizeof(ETYPE)), GETPC());                     \
+}
+
+GEN_ZVVM_LD_TILE(vmtl8_v,  int8_t,  lde_b_tlb, zvmtls_preserve_order)
+GEN_ZVVM_LD_TILE(vmtl16_v, int16_t, lde_h_tlb, zvmtls_preserve_order)
+GEN_ZVVM_LD_TILE(vmtl32_v, int32_t, lde_w_tlb, zvmtls_preserve_order)
+GEN_ZVVM_LD_TILE(vmtl64_v, int64_t, lde_d_tlb, zvmtls_preserve_order)
+
+GEN_ZVVM_LD_TILE(vmttl8_v,  int8_t,  lde_b_tlb, zvmtls_transpose)
+GEN_ZVVM_LD_TILE(vmttl16_v, int16_t, lde_h_tlb, zvmtls_transpose)
+GEN_ZVVM_LD_TILE(vmttl32_v, int32_t, lde_w_tlb, zvmtls_transpose)
+GEN_ZVVM_LD_TILE(vmttl64_v, int64_t, lde_d_tlb, zvmtls_transpose)
+
+#define GEN_ZVVM_ST_TILE(NAME, ETYPE, STORE_FN, ADDRCALC_FN)           \
+void HELPER(NAME)(void *vd, void *v0, target_ulong base,                \
+                  target_ulong leading_dim, CPURISCVState *env,         \
+                  uint32_t desc)                                        \
+{                                                                       \
+    uint32_t vm = vext_vm(desc);                                        \
+    zvmtls_ldst_tile(vd, v0, base, leading_dim,                         \
+                     env, desc, vm, STORE_FN, ADDRCALC_FN,              \
+                     ctzl(sizeof(ETYPE)), GETPC());                     \
+}
+
+GEN_ZVVM_ST_TILE(vmts8_v,  int8_t,  ste_b_tlb, zvmtls_preserve_order)
+GEN_ZVVM_ST_TILE(vmts16_v, int16_t, ste_h_tlb, zvmtls_preserve_order)
+GEN_ZVVM_ST_TILE(vmts32_v, int32_t, ste_w_tlb, zvmtls_preserve_order)
+GEN_ZVVM_ST_TILE(vmts64_v, int64_t, ste_d_tlb, zvmtls_preserve_order)
+
+GEN_ZVVM_ST_TILE(vmtts8_v,  int8_t,  ste_b_tlb, zvmtls_transpose)
+GEN_ZVVM_ST_TILE(vmtts16_v, int16_t, ste_h_tlb, zvmtls_transpose)
+GEN_ZVVM_ST_TILE(vmtts32_v, int32_t, ste_w_tlb, zvmtls_transpose)
+GEN_ZVVM_ST_TILE(vmtts64_v, int64_t, ste_d_tlb, zvmtls_transpose)
+
