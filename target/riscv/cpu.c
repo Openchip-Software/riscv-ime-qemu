@@ -209,6 +209,37 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(zvksg, PRIV_VERSION_1_12_0, ext_zvksg),
     ISA_EXT_DATA_ENTRY(zvksh, PRIV_VERSION_1_12_0, ext_zvksh),
     ISA_EXT_DATA_ENTRY(zvkt, PRIV_VERSION_1_12_0, ext_zvkt),
+    ISA_EXT_DATA_ENTRY(zvvm, PRIV_VERSION_1_12_0, ext_zvvm),
+    ISA_EXT_DATA_ENTRY(zvvmm, PRIV_VERSION_1_12_0, ext_zvvmm),
+    ISA_EXT_DATA_ENTRY(zvvfmm, PRIV_VERSION_1_12_0, ext_zvvfmm),
+    ISA_EXT_DATA_ENTRY(zvvmtls, PRIV_VERSION_1_12_0, ext_zvvmtls),
+    ISA_EXT_DATA_ENTRY(zvvmmi4b, PRIV_VERSION_1_12_0, ext_zvvmmi4b),
+    ISA_EXT_DATA_ENTRY(zvvmmi4h, PRIV_VERSION_1_12_0, ext_zvvmmi4h),
+    ISA_EXT_DATA_ENTRY(zvvmmb, PRIV_VERSION_1_12_0, ext_zvvmmb),
+    ISA_EXT_DATA_ENTRY(zvvmmbh, PRIV_VERSION_1_12_0, ext_zvvmmbh),
+    ISA_EXT_DATA_ENTRY(zvvmmbw, PRIV_VERSION_1_12_0, ext_zvvmmbw),
+    ISA_EXT_DATA_ENTRY(zvvmmh, PRIV_VERSION_1_12_0, ext_zvvmmh),
+    ISA_EXT_DATA_ENTRY(zvvmmhw, PRIV_VERSION_1_12_0, ext_zvvmmhw),
+    ISA_EXT_DATA_ENTRY(zvvmmhd, PRIV_VERSION_1_12_0, ext_zvvmmhd),
+    ISA_EXT_DATA_ENTRY(zvvmmw, PRIV_VERSION_1_12_0, ext_zvvmmw),
+    ISA_EXT_DATA_ENTRY(zvvmmwd, PRIV_VERSION_1_12_0, ext_zvvmmwd),
+    ISA_EXT_DATA_ENTRY(zvvmmd, PRIV_VERSION_1_12_0, ext_zvvmmd),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp4opf8, PRIV_VERSION_1_12_0, ext_zvvfmmofp4opf8),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp4h, PRIV_VERSION_1_12_0, ext_zvvfmmofp4h),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp4bf16, PRIV_VERSION_1_12_0, ext_zvvfmmofp4bf16),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp8, PRIV_VERSION_1_12_0, ext_zvvfmmofp8),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp8h, PRIV_VERSION_1_12_0, ext_zvvfmmofp8h),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp8bf16, PRIV_VERSION_1_12_0, ext_zvvfmmofp8bf16),
+    ISA_EXT_DATA_ENTRY(zvvfmmofp8w, PRIV_VERSION_1_12_0, ext_zvvfmmofp8w),
+    ISA_EXT_DATA_ENTRY(zvvfmmh, PRIV_VERSION_1_12_0, ext_zvvfmmh),
+    ISA_EXT_DATA_ENTRY(zvvfmmhf, PRIV_VERSION_1_12_0, ext_zvvfmmhf),
+    ISA_EXT_DATA_ENTRY(zvvfmmhd, PRIV_VERSION_1_12_0, ext_zvvfmmhd),
+    ISA_EXT_DATA_ENTRY(zvvfmmbf16, PRIV_VERSION_1_12_0, ext_zvvfmmbf16),
+    ISA_EXT_DATA_ENTRY(zvvfmmbf16f, PRIV_VERSION_1_12_0, ext_zvvfmmbf16f),
+    ISA_EXT_DATA_ENTRY(zvvfmmbf16d, PRIV_VERSION_1_12_0, ext_zvvfmmbf16d),
+    ISA_EXT_DATA_ENTRY(zvvfmmf, PRIV_VERSION_1_12_0, ext_zvvfmmf),
+    ISA_EXT_DATA_ENTRY(zvvfmmfd, PRIV_VERSION_1_12_0, ext_zvvfmmfd),
+    ISA_EXT_DATA_ENTRY(zvvfmmd, PRIV_VERSION_1_12_0, ext_zvvfmmd),
     ISA_EXT_DATA_ENTRY(zhinx, PRIV_VERSION_1_12_0, ext_zhinx),
     ISA_EXT_DATA_ENTRY(zhinxmin, PRIV_VERSION_1_12_0, ext_zhinxmin),
     ISA_EXT_DATA_ENTRY(sdtrig, PRIV_VERSION_1_12_0, debug),
@@ -780,7 +811,7 @@ static void riscv_cpu_reset_hold(Object *obj, ResetType type)
     set_default_nan_mode(1, &env->fp_status);
     /* Default NaN value: sign bit clear, frac msb set */
     set_float_default_nan_pattern(0b01000000, &env->fp_status);
-    env->vill = true;
+    vext_vtype_init(env);
 
 #ifndef CONFIG_USER_ONLY
     if (cpu->cfg.debug) {
@@ -1125,6 +1156,7 @@ static void riscv_cpu_init(Object *obj)
     cpu->cfg.pmp_granularity = MIN_RISCV_PMP_GRANULARITY;
     cpu->env.vext_ver = VEXT_VERSION_1_00_0;
     cpu->cfg.max_satp_mode = -1;
+    cpu->cfg.zvvm_lambda_supported = 0b1111111;
 
     if (mcc->def->profile) {
         mcc->def->profile->enabled = true;
@@ -1380,12 +1412,48 @@ const RISCVCPUMultiExtConfig riscv_cpu_vendor_exts[] = {
 /* These are experimental so mark with 'x-' */
 const RISCVCPUMultiExtConfig riscv_cpu_experimental_exts[] = {
     MULTI_EXT_CFG_BOOL("x-svukte", ext_svukte, false),
+
     MULTI_EXT_CFG_BOOL("x-zvfbfa", ext_zvfbfa, false),
 
     /* Zvfofp8min extension for OFP8 conversion */
     MULTI_EXT_CFG_BOOL("x-zvfofp8min", ext_zvfofp8min, false),
     /* Zvfofp4min extension for OFP4 conversion */
     MULTI_EXT_CFG_BOOL("x-zvfofp4min", ext_zvfofp4min, false),
+
+    MULTI_EXT_CFG_BOOL("x-zvvm", ext_zvvm, false),
+    /* IME extension groups */
+    MULTI_EXT_CFG_BOOL("x-zvvmm", ext_zvvmm, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmm", ext_zvvfmm, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmtls", ext_zvvmtls, false),
+    /* IME integer (Zvvmm) sub-extensions */
+    MULTI_EXT_CFG_BOOL("x-zvvmmi4b", ext_zvvmmi4b, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmi4h", ext_zvvmmi4h, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmb", ext_zvvmmb, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmbh", ext_zvvmmbh, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmbw", ext_zvvmmbw, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmh", ext_zvvmmh, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmhw", ext_zvvmmhw, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmhd", ext_zvvmmhd, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmw", ext_zvvmmw, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmwd", ext_zvvmmwd, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmd", ext_zvvmmd, false),
+    /* IME FP (Zvvfmm) sub-extensions */
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp4opf8", ext_zvvfmmofp4opf8, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp4h", ext_zvvfmmofp4h, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp4bf16", ext_zvvfmmofp4bf16, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp8", ext_zvvfmmofp8, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp8h", ext_zvvfmmofp8h, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp8bf16", ext_zvvfmmofp8bf16, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp8w", ext_zvvfmmofp8w, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmh", ext_zvvfmmh, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmhf", ext_zvvfmmhf, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmhd", ext_zvvfmmhd, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmbf16", ext_zvvfmmbf16, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmbf16f", ext_zvvfmmbf16f, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmbf16d", ext_zvvfmmbf16d, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmf", ext_zvvfmmf, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmfd", ext_zvvfmmfd, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmd", ext_zvvfmmd, false),
 
     { },
 };
@@ -1847,6 +1915,52 @@ static const PropertyInfo prop_elen = {
     .description = "elen",
     .get = prop_elen_get,
     .set = prop_elen_set,
+};
+
+static void prop_lambda_supported_set(Object *obj, Visitor *v, const char *name,
+                                      void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint16_t value;
+
+    if (!visit_type_uint16(v, name, &value, errp)) {
+        return;
+    }
+
+    if (cpu->cfg.ext_zvvm && !value) {
+        error_setg(errp, "IME: must support at least one lambda");
+        return;
+    }
+
+    if (value > 0b1111111) {
+        error_setg(errp, "IME: supported lambda (bitmask) has only 7 entries ({64, 32, 16, 8, 4, 2, 1})");
+        return;
+    }
+
+    if (value != cpu->cfg.zvvm_lambda_supported && riscv_cpu_is_vendor(obj)) {
+        cpu_set_prop_err(cpu, name, errp);
+        error_append_hint(errp, "Current '%s' val: %u\n",
+                          name, cpu->cfg.zvvm_lambda_supported);
+        return;
+    }
+
+    cpu_option_add_user_setting(name, value);
+    cpu->cfg.zvvm_lambda_supported = value;
+}
+
+static void prop_lambda_supported_get(Object *obj, Visitor *v, const char *name,
+                                   void *opaque, Error **errp)
+{
+    uint16_t value = RISCV_CPU(obj)->cfg.zvvm_lambda_supported;
+
+    visit_type_uint16(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_zvvm_lambda = {
+    .type = "uint16",
+    .description = "zvvm-lambda-supported",
+    .get = prop_lambda_supported_get,
+    .set = prop_lambda_supported_set,
 };
 
 static void prop_cbom_blksize_set(Object *obj, Visitor *v, const char *name,
@@ -2692,6 +2806,8 @@ static const Property riscv_cpu_properties[] = {
 
     {.name = "vlen", .info = &prop_vlen},
     {.name = "elen", .info = &prop_elen},
+
+    {.name = "zvvm-lambda", .info = &prop_zvvm_lambda},
 
     {.name = "cbom_blocksize", .info = &prop_cbom_blksize},
     {.name = "cbop_blocksize", .info = &prop_cbop_blksize},

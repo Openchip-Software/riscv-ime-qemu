@@ -192,7 +192,9 @@ FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, ALTFMT, 8, 1)
-FIELD(VTYPE, RESERVED, 9, sizeof(target_ulong) * 8 - 10)
+FIELD(VTYPE, ALTFMT_A, 9, 1)
+FIELD(VTYPE, ALTFMT_B, 10, 1)
+FIELD(VTYPE, RESERVED, 11, sizeof(target_ulong) * 8 - 12)
 
 typedef struct PMUCTRState {
     /* Current value of a counter */
@@ -223,6 +225,8 @@ struct CPUArchState {
     target_ulong vl;
     target_ulong vstart;
     target_ulong vtype;
+    /* the left-aligned fields of vtype are stored separately */
+    target_ulong vlambda;
     bool vill;
 
     target_ulong pc;
@@ -705,6 +709,9 @@ FIELD(TB_FLAGS, PM_SIGNEXTEND, 31, 1)
 
 FIELD(EXT_TB_FLAGS, MISA_EXT, 0, 32)
 FIELD(EXT_TB_FLAGS, ALTFMT, 32, 1)
+FIELD(EXT_TB_FLAGS, ALTFMT_A, 33, 1)
+FIELD(EXT_TB_FLAGS, ALTFMT_B, 34, 1)
+FIELD(EXT_TB_FLAGS, VLAMBDA, 35, 3)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)
@@ -848,6 +855,9 @@ static inline uint32_t vext_get_vlmax(uint32_t vlenb, uint32_t vsew,
      */
     return vlen >> (vsew + 3 - lmul);
 }
+
+void vext_vtype_init(CPURISCVState *env);
+void vext_vtype_set_vill(CPURISCVState *env);
 
 bool riscv_cpu_is_32bit(RISCVCPU *cpu);
 

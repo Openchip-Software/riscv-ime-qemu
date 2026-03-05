@@ -84,6 +84,11 @@ static inline uint32_t vext_vma(uint32_t desc)
     return FIELD_EX32(simd_data(desc), VDATA, VMA);
 }
 
+static inline uint32_t vext_vlambda(uint32_t desc)
+{
+    return FIELD_EX32(simd_data(desc), VDATA, VLAMBDA);
+}
+
 static inline uint32_t vext_vta(uint32_t desc)
 {
     return FIELD_EX32(simd_data(desc), VDATA, VTA);
