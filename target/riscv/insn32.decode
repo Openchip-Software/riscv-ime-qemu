@@ -54,6 +54,7 @@
 &shift     shamt rs1 rd
 &atomic    aq rl rs2 rs1 rd
 &rmrr      vm rd rs1 rs2
+&rmrr_lambda lambda vm rd rs1 rs2
 &rmr       vm rd rs2
 &r2nfvm    vm rd rs1 nf
 &rnfvm     vm rd rs1 rs2 nf
@@ -88,6 +89,7 @@
 @r_vm    ...... vm:1 ..... ..... ... ..... ....... &rmrr %rs2 %rs1 %rd
 @r_vm_1  ...... . ..... ..... ... ..... .......    &rmrr vm=1 %rs2 %rs1 %rd
 @r_vm_0  ...... . ..... ..... ... ..... .......    &rmrr vm=0 %rs2 %rs1 %rd
+@r_vm_lambda lambda:3 ... vm:1 ..... ..... ... ..... .......  &rmrr_lambda %rs2 %rs1 %rd
 @r2_zimm6  ..... . vm:1 ..... ..... ... ..... .......  &rmrr %rs2 rs1=%imm_z6 %rd
 @r2_zimm11 . zimm:11  ..... ... ..... ....... %rs1 %rd
 @r2_zimm10 .. zimm:10  ..... ... ..... ....... %rs1 %rd
@@ -1092,3 +1094,9 @@ sb_aqrl  00111 . . ..... ..... 000 ..... 0101111 @atom_st
 sh_aqrl  00111 . . ..... ..... 001 ..... 0101111 @atom_st
 sw_aqrl  00111 . . ..... ..... 010 ..... 0101111 @atom_st
 sd_aqrl  00111 . . ..... ..... 011 ..... 0101111 @atom_st
+
+# *** Zvmtls (IME tile load/store) ***
+vmtl_v        ...100 . ..... ..... 111 ..... 0000111 @r_vm_lambda
+vmttl_v       ...101 . ..... ..... 111 ..... 0000111 @r_vm_lambda
+vmts_v        ...100 . ..... ..... 111 ..... 0100111 @r_vm_lambda
+vmtts_v       ...101 . ..... ..... 111 ..... 0100111 @r_vm_lambda

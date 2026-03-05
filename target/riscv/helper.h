@@ -1366,6 +1366,24 @@ DEF_HELPER_5(vsm4k_vi, void, ptr, ptr, i32, env, i32)
 DEF_HELPER_4(vsm4r_vv, void, ptr, ptr, env, i32)
 DEF_HELPER_4(vsm4r_vs, void, ptr, ptr, env, i32)
 
+/* Zvmtls (IME tile load/store) helpers */
+DEF_HELPER_6(vmtl8_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtl16_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtl32_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtl64_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmttl8_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmttl16_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmttl32_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmttl64_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmts8_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmts16_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmts32_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmts64_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtts8_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtts16_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtts32_v, void, ptr, ptr, tl, tl, env, i32)
+DEF_HELPER_6(vmtts64_v, void, ptr, ptr, tl, tl, env, i32)
+
 /* CFI (zicfiss) helpers */
 #ifndef CONFIG_USER_ONLY
 DEF_HELPER_1(ssamoswap_disabled, void, env)
