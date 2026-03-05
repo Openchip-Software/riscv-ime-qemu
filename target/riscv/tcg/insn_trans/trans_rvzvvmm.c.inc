@@ -21,6 +21,31 @@
 #include "../vector_internals.h"
 
 /*
+ * Store an element of the given SEW from a TCGv_i64 to base + ofs.
+ * Upstream removed this helper from trans_rvv.c.inc.
+ */
+static void store_element(TCGv_i64 val, TCGv_ptr base,
+                          int ofs, int sew)
+{
+    switch (sew) {
+    case MO_8:
+        tcg_gen_st8_i64(val, base, ofs);
+        break;
+    case MO_16:
+        tcg_gen_st16_i64(val, base, ofs);
+        break;
+    case MO_32:
+        tcg_gen_st32_i64(val, base, ofs);
+        break;
+    case MO_64:
+        tcg_gen_st_i64(val, base, ofs);
+        break;
+    default:
+        g_assert_not_reached();
+    }
+}
+
+/*
  * Generic endianness correction for element offset, dispatched by
  * element size.  On little-endian hosts all H macros are identity.
  */
@@ -48,6 +73,57 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
 
     *regoff     = elem_in_line / lambda;
     *elementoff = line * lambda + elem_in_line % lambda;
+}
+
+/*
+ * Compute the byte offset from CPURISCVState (tcg_env) for a tile element.
+ * Like tile_regoffset() but returns a single absolute offset from env.
+ */
+static uint32_t tile_env_offset(DisasContext *s, int vreg_num,
+                                 uint32_t flat_idx, uint32_t regmul,
+                                 uint32_t lambda, uint32_t elem_bytes)
+{
+    uint32_t linesize     = lambda * regmul;
+    uint32_t line         = flat_idx / linesize;
+    uint32_t elem_in_line = flat_idx % linesize;
+    uint32_t regoff       = elem_in_line / lambda;
+    uint32_t elemoff      = line * lambda + elem_in_line % lambda;
+    return vreg_ofs(s, vreg_num) + regoff * s->cfg_ptr->vlenb
+           + ELEM_H(elemoff, elem_bytes) * elem_bytes;
+}
+
+/*
+ * Like tile_env_offset(), but for 4-bit (nibble) elements packed two per byte.
+ * Returns the byte offset from env for the byte containing the nibble, and
+ * writes the nibble index (0 = low, 1 = high) to *nibble.
+ */
+static uint32_t tile_env_nibble_offset(DisasContext *s, int vreg_num,
+                                       uint32_t flat_idx, uint32_t regmul,
+                                       uint32_t lambda, int *nibble)
+{
+    uint32_t linesize     = lambda * regmul;
+    uint32_t line         = flat_idx / linesize;
+    uint32_t elem_in_line = flat_idx % linesize;
+    uint32_t regoff       = elem_in_line / lambda;
+    uint32_t elemoff      = line * lambda + elem_in_line % lambda;
+    *nibble = elemoff & 1;
+    uint32_t byteoff = elemoff >> 1;
+    return vreg_ofs(s, vreg_num) + regoff * s->cfg_ptr->vlenb + H1(byteoff);
+}
+
+/*
+ * Load a 4-bit element from a packed nibble pair.  Loads the containing byte,
+ * then extracts/sign-extends the selected nibble (compile-time constant).
+ */
+static void load_nibble_element(TCGv_i64 dest, TCGv_ptr base,
+                                int byte_ofs, int nibble, bool sign)
+{
+    tcg_gen_ld8u_i64(dest, base, byte_ofs);
+    if (sign) {
+        tcg_gen_sextract_i64(dest, dest, nibble * 4, 4);
+    } else {
+        tcg_gen_extract_i64(dest, dest, nibble * 4, 4);
+    }
 }
 
 #define GEN_ZVVMM_VMMACC_VV(NAME, TD, T1, T2, TX1, TX2, OP)            \
@@ -1013,6 +1089,8 @@ RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e3m0_e2m1, uint16_t,
 typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
 
+#define ZVVMM_JIT_OP_BUDGET 400
+
 /*
  * Compute log2(mul_c) for the accumulator tile register group.
  * mul_c = vlenb / (sewb * lambda^2).  Returns -1 if the configuration
@@ -1042,9 +1120,113 @@ static bool zvvmm_ext_check(DisasContext *s, uint32_t ext_offset)
     return *(const bool *)((const char *)s->cfg_ptr + ext_offset);
 }
 
+/*
+ * Emit the integer MACC triple-nested loop as TCG IR, with the i and k
+ * loops fully unrolled at translation time and element offsets baked in
+ * as compile-time constants.  Only the j-loop remains as a runtime TCG
+ * branch-back loop.
+ *
+ * Returns true on success; returns false (without emitting anything)
+ * when the configuration exceeds the TCG op budget, in which case the
+ * caller should fall back to the C helper.  Int4 (nibble-packed)
+ * inputs are handled by loading the containing byte and extracting.
+ */
+static bool zvvmm_int_macc_jit(DisasContext *s, arg_rmrr *a,
+                                int widening, bool sign_a, bool sign_b)
+{
+    const uint32_t vlenb       = s->cfg_ptr->vlenb;
+    const uint32_t lambda      = 1 << (s->vlambda - 1);
+    const uint32_t actual_lmul = 1 << s->lmul;
+    const uint32_t sew         = s->sew;
+    const uint32_t sewb        = 1 << sew;
+    const int      input_sew   = sew - ctz32(widening);
+    const uint32_t input_esz   = sewb / widening;
+
+    const bool is_int4 = (input_sew < 0);
+
+    const uint32_t k_eff    = lambda * actual_lmul * widening;
+    const uint32_t M        = vlenb / (sewb * lambda);
+    const uint32_t mul_c    = vlenb / (sewb * lambda * lambda);
+    const uint32_t j_stride = lambda * sewb;
+
+    /* Budget: 6 ops/k for Int4 (ld+extract for each of A,B + mul + add) */
+    const int ops_per_k = is_int4 ? 6 : 5;
+    if (M * (2 + k_eff * ops_per_k) > ZVVMM_JIT_OP_BUDGET) {
+        return false;
+    }
+
+    /* --- Emit TCG IR --- */
+
+    /* N = vl >> log2(k_eff) */
+    TCGv t_n = tcg_temp_new();
+    tcg_gen_extu_i32_tl(t_n, cpu_vl);
+    tcg_gen_shri_tl(t_n, t_n, ctz32(k_eff));
+
+    TCGv t_j = tcg_temp_new();
+    tcg_gen_movi_tl(t_j, 0);
+
+    TCGv_ptr base_ptr = tcg_temp_new_ptr();
+    tcg_gen_mov_ptr(base_ptr, tcg_env);
+
+    TCGv_i64 acc    = tcg_temp_new_i64();
+    TCGv_i64 t_a    = tcg_temp_new_i64();
+    TCGv_i64 t_b    = tcg_temp_new_i64();
+    TCGv_i64 t_prod = tcg_temp_new_i64();
+
+    TCGLabel *loop_start = gen_new_label();
+    TCGLabel *loop_end   = gen_new_label();
+
+    gen_set_label(loop_start);
+    tcg_gen_brcond_tl(TCG_COND_GEU, t_j, t_n, loop_end);
+
+    for (uint32_t i = 0; i < M; i++) {
+        uint32_t c_off = tile_env_offset(s, a->rd, i, mul_c, lambda, sewb);
+
+        load_element(acc, base_ptr, c_off, sew, true);
+
+        for (uint32_t k = 0; k < k_eff; k++) {
+            if (is_int4) {
+                int nib_a, nib_b;
+                uint32_t a_off = tile_env_nibble_offset(s, a->rs1,
+                                     i * k_eff + k, actual_lmul, lambda,
+                                     &nib_a);
+                uint32_t b_off = tile_env_nibble_offset(s, a->rs2,
+                                     k, actual_lmul, lambda, &nib_b);
+                load_nibble_element(t_a, tcg_env, a_off, nib_a, sign_a);
+                load_nibble_element(t_b, base_ptr, b_off, nib_b, sign_b);
+            } else {
+                uint32_t a_off = tile_env_offset(s, a->rs1,
+                                                  i * k_eff + k,
+                                                  actual_lmul, lambda,
+                                                  input_esz);
+                uint32_t b_off = tile_env_offset(s, a->rs2, k,
+                                                  actual_lmul, lambda,
+                                                  input_esz);
+                load_element(t_a, tcg_env, a_off, input_sew, sign_a);
+                load_element(t_b, base_ptr, b_off, input_sew, sign_b);
+            }
+            tcg_gen_mul_i64(t_prod, t_a, t_b);
+            tcg_gen_add_i64(acc, acc, t_prod);
+        }
+
+        store_element(acc, base_ptr, c_off, sew);
+    }
+
+    tcg_gen_addi_ptr(base_ptr, base_ptr, j_stride);
+    tcg_gen_addi_tl(t_j, t_j, 1);
+    tcg_gen_br(loop_start);
+
+    gen_set_label(loop_end);
+
+    tcg_gen_movi_i32(cpu_vstart, 0);
+    finalize_rvv_inst(s);
+    return true;
+}
+
 static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
                              gen_helper_vmmacc * const fns[2][2][4],
-                             const uint32_t ext_offsets[4])
+                             const uint32_t ext_offsets[4],
+                             int widening)
 {
     if (!zvvmm_ext_check(s, ext_offsets[s->sew])) {
         return false;
@@ -1056,6 +1238,13 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
         require_align(a->rd, mul_c_log2) &&
         require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
 
+        /* Try JIT path for integer MACC */
+        if (zvvmm_int_macc_jit(s, a, widening,
+                                !s->altfmt_a, !s->altfmt_b)) {
+            return true;
+        }
+
+        /* Fall back to C helper */
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->sew];
         if (fn) {
             return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -1132,7 +1321,7 @@ static bool trans_vmmacc_vv(DisasContext *s, arg_rmrr *a)
         CPU_CFG_OFFSET(ext_zvvmmb), CPU_CFG_OFFSET(ext_zvvmmh),
         CPU_CFG_OFFSET(ext_zvvmmw), CPU_CFG_OFFSET(ext_zvvmmd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets);
+    return zvvmm_macc_trans(s, a, fns, ext_offsets, 1);
 }
 
 static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1169,7 +1358,7 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
         CPU_CFG_OFFSET(ext_zvvmmi4b), CPU_CFG_OFFSET(ext_zvvmmbh),
         CPU_CFG_OFFSET(ext_zvvmmhw),  CPU_CFG_OFFSET(ext_zvvmmwd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets);
+    return zvvmm_macc_trans(s, a, fns, ext_offsets, 2);
 }
 
 static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1206,7 +1395,7 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
         0,                            CPU_CFG_OFFSET(ext_zvvmmi4h),
         CPU_CFG_OFFSET(ext_zvvmmbw),  CPU_CFG_OFFSET(ext_zvvmmhd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets);
+    return zvvmm_macc_trans(s, a, fns, ext_offsets, 4);
 }
 static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
