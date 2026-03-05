@@ -962,6 +962,7 @@ static uint16_t fqwmacc4_e3m0xe2m1_bf16(uint32_t a_raw, uint32_t b_raw,
         float4_e2m1_to_bfloat16(make_float4_e2m1(b_raw), fs),
         d, 0, fs);
 }
+
 /* FP4 widening: 4-bit FP -> 8-bit FP accumulate */
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e4m3_e2m1, uint8_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fwmacc4_e2m1)
@@ -1042,9 +1043,21 @@ static bool zvvmm_ext_check(DisasContext *s, uint32_t ext_offset)
     return *(const bool *)((const char *)s->cfg_ptr + ext_offset);
 }
 
+/*
+ * Integer MACC dispatch tables: fns[altfmt_a][altfmt_b][sew]
+ *
+ * Helper selection is performed at translation time based on altfmt_a,
+ * altfmt_b, and sew, which are all captured in the TB flags.  This is
+ * correct because vsetvl (which sets these fields in vtype) is a context-
+ * synchronising instruction that ends the current TB.  Any change to
+ * altfmt_a, altfmt_b, or sew therefore triggers TB lookup/recompilation
+ * with the new flag values, guaranteeing that the dispatch table index
+ * always matches the current vtype configuration.
+ */
 static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
                              gen_helper_vmmacc * const fns[2][2][4],
-                             const uint32_t ext_offsets[4])
+                             const uint32_t ext_offsets[4],
+                             int widening)
 {
     if (!zvvmm_ext_check(s, ext_offsets[s->sew])) {
         return false;
@@ -1055,7 +1068,6 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&
         require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
-
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->sew];
         if (fn) {
             return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -1074,7 +1086,8 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
  */
 static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
                               gen_helper_vmmacc * const fns[2][2][2][4],
-                              const uint32_t ext_offsets[2][2][4])
+                              const uint32_t ext_offsets[2][2][4],
+                              int widening)
 {
     if (!zvvmm_ext_check(s, ext_offsets[s->altfmt_a][s->altfmt][s->sew])) {
         return false;
@@ -1088,7 +1101,6 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&
         require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
-
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
         if (fn) {
             return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
@@ -1132,7 +1144,7 @@ static bool trans_vmmacc_vv(DisasContext *s, arg_rmrr *a)
         CPU_CFG_OFFSET(ext_zvvmmb), CPU_CFG_OFFSET(ext_zvvmmh),
         CPU_CFG_OFFSET(ext_zvvmmw), CPU_CFG_OFFSET(ext_zvvmmd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets);
+    return zvvmm_macc_trans(s, a, fns, ext_offsets, 1);
 }
 
 static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1169,7 +1181,7 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
         CPU_CFG_OFFSET(ext_zvvmmi4b), CPU_CFG_OFFSET(ext_zvvmmbh),
         CPU_CFG_OFFSET(ext_zvvmmhw),  CPU_CFG_OFFSET(ext_zvvmmwd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets);
+    return zvvmm_macc_trans(s, a, fns, ext_offsets, 2);
 }
 
 static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1206,8 +1218,9 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
         0,                            CPU_CFG_OFFSET(ext_zvvmmi4h),
         CPU_CFG_OFFSET(ext_zvvmmbw),  CPU_CFG_OFFSET(ext_zvvmmhd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets);
+    return zvvmm_macc_trans(s, a, fns, ext_offsets, 4);
 }
+
 static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
     static gen_helper_vmmacc * const fns[2][2][2][4] = {
@@ -1254,7 +1267,7 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
           { CPU_CFG_OFFSET(ext_zvvfmmofp8), CPU_CFG_OFFSET(ext_zvvfmmbf16),
             0, 0 } }
     };
-    return zvvmm_fmacc_trans(s, a, fns, ext_offsets);
+    return zvvmm_fmacc_trans(s, a, fns, ext_offsets, 1);
 }
 
 static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1324,7 +1337,7 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
               0, 0 }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, ext_offsets);
+    return zvvmm_fmacc_trans(s, a, fns, ext_offsets, 2);
 }
 
 static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1383,5 +1396,5 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
             { 0, CPU_CFG_OFFSET(ext_zvvfmmofp4bf16), 0, 0 }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, ext_offsets);
+    return zvvmm_fmacc_trans(s, a, fns, ext_offsets, 4);
 }
