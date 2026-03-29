@@ -32,6 +32,7 @@
 #define INSN_VMMACC_VV    0xE2040857u  /* funct6=111000, funct3=000 */
 #define INSN_VWMMACC_VV   0xE6040857u  /* funct6=111001, funct3=000 */
 #define INSN_VQWMMACC_VV  0xEA040857u  /* funct6=111010, funct3=000 */
+#define INSN_V8WMMACC_VV  0xEE040857u  /* funct6=111011, funct3=000 */
 
 /*
  * Tile load/store (lambda=0=dynamic, vm=1, rs2=a1, rs1=a0, funct3=111)
@@ -79,8 +80,8 @@ static inline uint64_t set_macc_vtype(int sew_bytes, int lmul, int lambda,
     uint64_t vtype = (uint64_t)__builtin_ctz(lmul)
                    | ((uint64_t)__builtin_ctz(sew_bytes) << 3)
                    | ((uint64_t)altfmt << 8)
-                   | ((uint64_t)altfmt_a << 9)
-                   | ((uint64_t)altfmt_b << 10)
+                   | ((uint64_t)altfmt_a << 59)
+                   | ((uint64_t)altfmt_b << 58)
                    | ((uint64_t)(__builtin_ctz(lambda) + 1) << 60);
     uint64_t vl;
     asm volatile("vsetvl %0, zero, %1" : "=r"(vl) : "r"(vtype));
@@ -98,8 +99,8 @@ static inline uint64_t set_macc_vtype_vl(int sew_bytes, int lmul, int lambda,
     uint64_t vtype = (uint64_t)__builtin_ctz(lmul)
                    | ((uint64_t)__builtin_ctz(sew_bytes) << 3)
                    | ((uint64_t)altfmt << 8)
-                   | ((uint64_t)altfmt_a << 9)
-                   | ((uint64_t)altfmt_b << 10)
+                   | ((uint64_t)altfmt_a << 59)
+                   | ((uint64_t)altfmt_b << 58)
                    | ((uint64_t)(__builtin_ctz(lambda) + 1) << 60);
     uint64_t vl;
     asm volatile("vsetvl %0, %1, %2" : "=r"(vl) : "r"(avl), "r"(vtype));
@@ -759,6 +760,192 @@ static int test_vqwmmacc_int4(int lmul, int lambda, uint64_t vlenb,
 }
 
 /* ====================================================================
+ * Test: 8x widening v8wmmacc.vv — byte-aligned inputs (Int8→Int64)
+ * ==================================================================== */
+
+static int test_v8wmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
+                         int altfmt_a, int altfmt_b, const char *label)
+{
+    int input_sew = accum_sew / 8;
+    int W = 8;
+    int M = vlenb / (accum_sew * lambda);
+    int N = M;
+    int K = lambda * W * lmul;
+    int linesize_load = lambda * lmul;
+    int mu_load = vlenb / (input_sew * lambda);
+    int mul_c = vlenb / (accum_sew * lambda * lambda);
+    int linesize_c = lambda * lmul;
+
+    if (M < W || mul_c != lmul || input_sew < 1) {
+        return 0;
+    }
+
+    int N_active = M / W;
+    int a_ld = linesize_load;
+    int b_ld = linesize_load;
+    int c_ld = linesize_c;
+    int c_nelem = M * N;
+
+    uint8_t *A_buf  = calloc(mu_load * a_ld, input_sew);
+    uint8_t *B_buf  = calloc(mu_load * b_ld, input_sew);
+    uint8_t *C_dst  = calloc(c_nelem, accum_sew);
+
+    for (int row = 0; row < M; row++) {
+        for (int k = 0; k < K; k++) {
+            int tr = W * row + k / linesize_load;
+            int tc = k % linesize_load;
+            int64_t val;
+            if (altfmt_a) {
+                val = ((row * K + k) % 200) + 1;
+            } else {
+                val = ((row * K + k) % 100) - 50;
+            }
+            write_elem(A_buf, tr * a_ld + tc, input_sew, (uint64_t)val);
+        }
+    }
+
+    for (int col = 0; col < N; col++) {
+        for (int k = 0; k < K; k++) {
+            int tr = W * col + k / linesize_load;
+            int tc = k % linesize_load;
+            int64_t val;
+            if (altfmt_b) {
+                val = ((k * N + col) % 200) + 1;
+            } else {
+                val = ((k * N + col) % 100) - 50;
+            }
+            write_elem(B_buf, tr * b_ld + tc, input_sew, (uint64_t)val);
+        }
+    }
+
+    /* Load A and B at input_sew */
+    set_macc_vtype(input_sew, lmul, lambda, 0, altfmt_a, altfmt_b);
+    DO_TILE(INSN_VMTL_V8, A_buf, (uint64_t)a_ld);
+    DO_TILE(INSN_VMTL_V0, B_buf, (uint64_t)b_ld);
+
+    /* Reconfigure to accum_sew, zero C, execute v8wmmacc, store C */
+    set_macc_vtype(accum_sew, lmul, lambda, 0, altfmt_a, altfmt_b);
+    DO_VXOR_V16();
+    DO_MACC(INSN_V8WMMACC_VV);
+    DO_TILE(INSN_VMTS_V16, C_dst, (uint64_t)c_ld);
+
+    int fail = 0;
+    uint64_t mask = elem_mask(accum_sew);
+
+    for (int row = 0; row < M; row++) {
+        for (int col = 0; col < N_active; col++) {
+            int64_t acc = 0;
+            for (int k = 0; k < K; k++) {
+                int tr_a = W * row + k / linesize_load;
+                int tc_a = k % linesize_load;
+                int tr_b = W * col + k / linesize_load;
+                int tc_b = k % linesize_load;
+                int64_t a_val, b_val;
+
+                if (altfmt_a) {
+                    a_val = (int64_t)read_elem(A_buf,
+                                tr_a * a_ld + tc_a, input_sew);
+                } else {
+                    a_val = read_signed(A_buf,
+                                tr_a * a_ld + tc_a, input_sew);
+                }
+                if (altfmt_b) {
+                    b_val = (int64_t)read_elem(B_buf,
+                                tr_b * b_ld + tc_b, input_sew);
+                } else {
+                    b_val = read_signed(B_buf,
+                                tr_b * b_ld + tc_b, input_sew);
+                }
+                acc += a_val * b_val;
+            }
+
+            int flat = col * M + row;
+            uint64_t expected = (uint64_t)acc & mask;
+            uint64_t got = read_elem(C_dst, flat, accum_sew);
+            if (got != expected) {
+                printf("FAIL %s e%d->e%d m%d l%d: C[%d][%d] "
+                       "got 0x%lx exp 0x%lx\n",
+                       label, input_sew * 8, accum_sew * 8, lmul, lambda,
+                       row, col,
+                       (unsigned long)got, (unsigned long)expected);
+                fail = 1;
+            }
+        }
+    }
+
+    free(A_buf); free(B_buf); free(C_dst);
+    return fail;
+}
+
+/* ====================================================================
+ * Test: 8x widening v8wmmacc.vv with int4 inputs (Int4→Int32)
+ * ==================================================================== */
+
+static int test_v8wmmacc_int4(int lmul, int lambda, uint64_t vlenb,
+                              int altfmt_a, int altfmt_b, const char *label)
+{
+    int accum_sew = 4;  /* e32 accumulator */
+    int W = 8;
+    int k_eff = lambda * W * lmul;
+    int M = vlenb / (accum_sew * lambda);
+    int N = M;
+    int mul_c = vlenb / (accum_sew * lambda * lambda);
+    int linesize_load = lambda * lmul;
+
+    if (M < W || mul_c != lmul) {
+        return 0;
+    }
+
+    int N_active = M / W;
+    int input_sew = 1;  /* load at e8 (bytes containing packed nibbles) */
+    int a_ld = linesize_load;
+    int b_ld = linesize_load;
+    int c_ld = lambda * lmul;
+    int mu_load = vlenb / (input_sew * lambda);
+    int byte_count = mu_load * a_ld;
+
+    uint8_t *A_buf = calloc(byte_count, 1);
+    uint8_t *B_buf = calloc(byte_count, 1);
+    uint8_t *C_dst = calloc(M * N, accum_sew);
+
+    /* All nibbles = 1 */
+    memset(A_buf, 0x11, byte_count);
+    memset(B_buf, 0x11, byte_count);
+
+    /* Load at e8, then reconfigure to e32 for MACC */
+    set_macc_vtype(input_sew, lmul, lambda, 0, altfmt_a, altfmt_b);
+    DO_TILE(INSN_VMTL_V8, A_buf, (uint64_t)a_ld);
+    DO_TILE(INSN_VMTL_V0, B_buf, (uint64_t)b_ld);
+
+    set_macc_vtype(accum_sew, lmul, lambda, 0, altfmt_a, altfmt_b);
+    DO_VXOR_V16();
+    DO_MACC(INSN_V8WMMACC_VV);
+    DO_TILE(INSN_VMTS_V16, C_dst, (uint64_t)c_ld);
+
+    int fail = 0;
+    uint64_t mask = elem_mask(accum_sew);
+    int64_t expected_val = k_eff;
+
+    for (int row = 0; row < M; row++) {
+        for (int col = 0; col < N_active; col++) {
+            int flat = col * M + row;
+            uint64_t expected = (uint64_t)expected_val & mask;
+            uint64_t got = read_elem(C_dst, flat, accum_sew);
+            if (got != expected) {
+                printf("FAIL %s i4->e32 m%d l%d: C[%d][%d] "
+                       "got 0x%lx exp 0x%lx\n",
+                       label, lmul, lambda, row, col,
+                       (unsigned long)got, (unsigned long)expected);
+                fail = 1;
+            }
+        }
+    }
+
+    free(A_buf); free(B_buf); free(C_dst);
+    return fail;
+}
+
+/* ====================================================================
  * Main
  * ==================================================================== */
 
@@ -922,6 +1109,55 @@ int main(void)
             /* TC-INT-17: vqwmmacc i4->e16 UU */
             fail |= test_vqwmmacc_int4(lmul, lambda, vlenb,
                                        1, 1, "vqwmmacc-i4 UU");
+            tests++;
+
+            /* TC-INT-22: v8wmmacc i4->e32 SS */
+            fail |= test_v8wmmacc_int4(lmul, lambda, vlenb,
+                                       0, 0, "v8wmmacc-i4 SS");
+            tests++;
+
+            /* v8wmmacc i4->e32 SU */
+            fail |= test_v8wmmacc_int4(lmul, lambda, vlenb,
+                                       0, 1, "v8wmmacc-i4 SU");
+            tests++;
+
+            /* v8wmmacc i4->e32 US */
+            fail |= test_v8wmmacc_int4(lmul, lambda, vlenb,
+                                       1, 0, "v8wmmacc-i4 US");
+            tests++;
+
+            /* v8wmmacc i4->e32 UU */
+            fail |= test_v8wmmacc_int4(lmul, lambda, vlenb,
+                                       1, 1, "v8wmmacc-i4 UU");
+            tests++;
+        }
+    }
+
+    /* Octet-widening tests: v8wmmacc (W=8), byte-aligned (Int8→Int64) */
+    /* Only accum_sew=8 (e64) is valid for byte inputs with W=8 */
+    for (int li = 0; li < 4; li++) {
+        for (int ai = 0; ai < 4; ai++) {
+            int lmul   = lmuls[li];
+            int lambda = lambdas[ai];
+
+            /* TC-INT-18: v8wmmacc SS */
+            fail |= test_v8wmmacc(8, lmul, lambda, vlenb,
+                                  0, 0, "v8wmmacc SS");
+            tests++;
+
+            /* TC-INT-19: v8wmmacc SU */
+            fail |= test_v8wmmacc(8, lmul, lambda, vlenb,
+                                  0, 1, "v8wmmacc SU");
+            tests++;
+
+            /* TC-INT-20: v8wmmacc US */
+            fail |= test_v8wmmacc(8, lmul, lambda, vlenb,
+                                  1, 0, "v8wmmacc US");
+            tests++;
+
+            /* TC-INT-21: v8wmmacc UU */
+            fail |= test_v8wmmacc(8, lmul, lambda, vlenb,
+                                  1, 1, "v8wmmacc UU");
             tests++;
         }
     }
