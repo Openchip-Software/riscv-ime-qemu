@@ -33,3 +33,8 @@ TESTS += test-zvvmm-fp
 test-zvvmm-fp: CFLAGS += -march=rv64gcv
 test-zvvmm-fp: LDFLAGS += -static -lm
 run-test-zvvmm-fp: QEMU_OPTS += -cpu rv64,v=true,vlen=256,x-zvvm=true,zfbfmin=true,zvfbfa=true,x-zvfofp8min=true
+
+TESTS += test-zvvmm-mx
+test-zvvmm-mx: CFLAGS += -march=rv64gcv
+test-zvvmm-mx: LDFLAGS += -static -lm
+run-test-zvvmm-mx: QEMU_OPTS += -cpu rv64,v=true,vlen=256,x-zvvm=true,zfbfmin=true,zvfbfa=true,x-zvvfmmmx=true
