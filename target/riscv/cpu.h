@@ -211,9 +211,11 @@ FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, ALTFMT, 8, 1)
-FIELD(VTYPE, ALTFMT_A, 9, 1)
-FIELD(VTYPE, ALTFMT_B, 10, 1)
-FIELD(VTYPE, RESERVED, 11, sizeof(uint64_t) * 8 - 12)
+FIELD(VTYPE, RESERVED, 9, sizeof(uint64_t) * 8 - 10)
+/* Zvvm upper vtype fields (below lambda[2:0] at [XLEN-2:XLEN-4]) */
+FIELD(VTYPE, ALTFMT_A, 59, 1) /* vtype[XLEN-5] */
+FIELD(VTYPE, ALTFMT_B, 58, 1) /* vtype[XLEN-6] */
+FIELD(VTYPE, BS, 57, 1)       /* vtype[XLEN-7], microscaling block size */
 
 #ifndef CONFIG_USER_ONLY
 /* machine specific AIA ireg read-modify-write callback */
@@ -753,6 +755,7 @@ FIELD(EXT_TB_FLAGS, BIG_ENDIAN, 33, 1)
 FIELD(EXT_TB_FLAGS, ALTFMT_A, 34, 1)
 FIELD(EXT_TB_FLAGS, ALTFMT_B, 35, 1)
 FIELD(EXT_TB_FLAGS, VLAMBDA, 36, 3)
+FIELD(EXT_TB_FLAGS, BS, 39, 1)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)

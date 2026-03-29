@@ -144,6 +144,8 @@ static TCGTBCPUState riscv_get_tb_cpu_state(CPUState *cs)
         ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, ALTFMT_B, altfmt_b);
         ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, VLAMBDA,
                                env->vlambda);
+        ext_flags = FIELD_DP64(ext_flags, EXT_TB_FLAGS, BS,
+                               FIELD_EX64(env->vtype, VTYPE, BS));
     } else {
         flags = FIELD_DP32(flags, TB_FLAGS, VILL, 1);
     }
@@ -1116,9 +1118,11 @@ static void cpu_enable_zvvm_implied_rules(RISCVCPU *cpu)
     if (cpu->cfg.ext_zvvmm) {
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmi4b), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmi4h), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmi4w), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmb), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmbh), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmbw), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmbd), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmh), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmhw), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvmmhd), true);
@@ -1136,6 +1140,8 @@ static void cpu_enable_zvvm_implied_rules(RISCVCPU *cpu)
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8h), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8bf16), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8w), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp8d), true);
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmofp4w), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmh), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmhf), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvvfmmhd), true);
