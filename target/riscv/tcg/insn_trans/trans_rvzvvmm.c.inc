@@ -813,72 +813,12 @@ static uint8_t fwmacc4_e2m1(uint32_t a_raw, uint32_t b_raw, uint8_t d,
         d, 0, fs);
 }
 
-/* Widening FP4 E3M0 -> FP8 E4M3 */
-static uint8_t fwmacc4_e3m0(uint32_t a_raw, uint32_t b_raw, uint8_t d,
-                             float_status *fs)
-{
-    return float8_e4m3_muladd(
-        float4_e3m0_to_float8_e4m3(make_float4_e3m0(a_raw), fs),
-        float4_e3m0_to_float8_e4m3(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
 /* Widening FP4 E2M1 -> FP8 E5M2 */
 static uint8_t fwmacc4_e2m1_e5m2(uint32_t a_raw, uint32_t b_raw, uint8_t d,
                                   float_status *fs)
 {
     return float8_e5m2_muladd(
         float4_e2m1_to_float8_e5m2(make_float4_e2m1(a_raw), fs),
-        float4_e2m1_to_float8_e5m2(make_float4_e2m1(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Widening FP4 E3M0 -> FP8 E5M2 */
-static uint8_t fwmacc4_e3m0_e5m2(uint32_t a_raw, uint32_t b_raw, uint8_t d,
-                                  float_status *fs)
-{
-    return float8_e5m2_muladd(
-        float4_e3m0_to_float8_e5m2(make_float4_e3m0(a_raw), fs),
-        float4_e3m0_to_float8_e5m2(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input widening: e2m1 × e3m0 → e4m3 */
-static uint8_t fwmacc4_e2m1xe3m0(uint32_t a_raw, uint32_t b_raw, uint8_t d,
-                                  float_status *fs)
-{
-    return float8_e4m3_muladd(
-        float4_e2m1_to_float8_e4m3(make_float4_e2m1(a_raw), fs),
-        float4_e3m0_to_float8_e4m3(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input widening: e3m0 × e2m1 → e4m3 */
-static uint8_t fwmacc4_e3m0xe2m1(uint32_t a_raw, uint32_t b_raw, uint8_t d,
-                                  float_status *fs)
-{
-    return float8_e4m3_muladd(
-        float4_e3m0_to_float8_e4m3(make_float4_e3m0(a_raw), fs),
-        float4_e2m1_to_float8_e4m3(make_float4_e2m1(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input widening: e2m1 × e3m0 → e5m2 */
-static uint8_t fwmacc4_e2m1xe3m0_e5m2(uint32_t a_raw, uint32_t b_raw, uint8_t d,
-                                       float_status *fs)
-{
-    return float8_e5m2_muladd(
-        float4_e2m1_to_float8_e5m2(make_float4_e2m1(a_raw), fs),
-        float4_e3m0_to_float8_e5m2(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input widening: e3m0 × e2m1 → e5m2 */
-static uint8_t fwmacc4_e3m0xe2m1_e5m2(uint32_t a_raw, uint32_t b_raw, uint8_t d,
-                                       float_status *fs)
-{
-    return float8_e5m2_muladd(
-        float4_e3m0_to_float8_e5m2(make_float4_e3m0(a_raw), fs),
         float4_e2m1_to_float8_e5m2(make_float4_e2m1(b_raw), fs),
         d, 0, fs);
 }
@@ -893,16 +833,6 @@ static uint16_t fqwmacc4_e2m1(uint32_t a_raw, uint32_t b_raw, uint16_t d,
         d, 0, fs);
 }
 
-/* Quad-widening FP4 E3M0 -> FP16 */
-static uint16_t fqwmacc4_e3m0(uint32_t a_raw, uint32_t b_raw, uint16_t d,
-                               float_status *fs)
-{
-    return float16_muladd(
-        float4_e3m0_to_float16(make_float4_e3m0(a_raw), fs),
-        float4_e3m0_to_float16(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
 /* Quad-widening FP4 E2M1 -> BF16 */
 static uint16_t fqwmacc4_e2m1_bf16(uint32_t a_raw, uint32_t b_raw, uint16_t d,
                                     float_status *fs)
@@ -913,103 +843,19 @@ static uint16_t fqwmacc4_e2m1_bf16(uint32_t a_raw, uint32_t b_raw, uint16_t d,
         d, 0, fs);
 }
 
-/* Quad-widening FP4 E3M0 -> BF16 */
-static uint16_t fqwmacc4_e3m0_bf16(uint32_t a_raw, uint32_t b_raw, uint16_t d,
-                                    float_status *fs)
-{
-    return bfloat16_muladd(
-        float4_e3m0_to_bfloat16(make_float4_e3m0(a_raw), fs),
-        float4_e3m0_to_bfloat16(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input quad-widening: e2m1 × e3m0 → f16 */
-static uint16_t fqwmacc4_e2m1xe3m0(uint32_t a_raw, uint32_t b_raw, uint16_t d,
-                                    float_status *fs)
-{
-    return float16_muladd(
-        float4_e2m1_to_float16(make_float4_e2m1(a_raw), fs),
-        float4_e3m0_to_float16(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input quad-widening: e3m0 × e2m1 → f16 */
-static uint16_t fqwmacc4_e3m0xe2m1(uint32_t a_raw, uint32_t b_raw, uint16_t d,
-                                    float_status *fs)
-{
-    return float16_muladd(
-        float4_e3m0_to_float16(make_float4_e3m0(a_raw), fs),
-        float4_e2m1_to_float16(make_float4_e2m1(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input quad-widening: e2m1 × e3m0 → bf16 */
-static uint16_t fqwmacc4_e2m1xe3m0_bf16(uint32_t a_raw, uint32_t b_raw,
-                                          uint16_t d, float_status *fs)
-{
-    return bfloat16_muladd(
-        float4_e2m1_to_bfloat16(make_float4_e2m1(a_raw), fs),
-        float4_e3m0_to_bfloat16(make_float4_e3m0(b_raw), fs),
-        d, 0, fs);
-}
-
-/* Mixed-input quad-widening: e3m0 × e2m1 → bf16 */
-static uint16_t fqwmacc4_e3m0xe2m1_bf16(uint32_t a_raw, uint32_t b_raw,
-                                          uint16_t d, float_status *fs)
-{
-    return bfloat16_muladd(
-        float4_e3m0_to_bfloat16(make_float4_e3m0(a_raw), fs),
-        float4_e2m1_to_bfloat16(make_float4_e2m1(b_raw), fs),
-        d, 0, fs);
-}
-
 /* FP4 widening: 4-bit FP -> 8-bit FP accumulate */
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e4m3_e2m1, uint8_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fwmacc4_e2m1)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e4m3_e3m0, uint8_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fwmacc4_e3m0)
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e5m2_e2m1, uint8_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fwmacc4_e2m1_e5m2)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e5m2_e3m0, uint8_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fwmacc4_e3m0_e5m2)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e4m3_e2m1_e3m0, uint8_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fwmacc4_e2m1xe3m0)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e5m2_e2m1_e3m0, uint8_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fwmacc4_e2m1xe3m0_e5m2)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e4m3_e3m0_e2m1, uint8_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fwmacc4_e3m0xe2m1)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e5m2_e3m0_e2m1, uint8_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fwmacc4_e3m0xe2m1_e5m2)
 
 /* FP4 quad-widening: 4-bit FP -> 16-bit FP accumulate */
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_f16_e2m1, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fqwmacc4_e2m1)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_f16_e3m0, uint16_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fqwmacc4_e3m0)
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e2m1, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fqwmacc4_e2m1_bf16)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e3m0, uint16_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fqwmacc4_e3m0_bf16)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_f16_e2m1_e3m0, uint16_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fqwmacc4_e2m1xe3m0)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e2m1_e3m0, uint16_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fqwmacc4_e2m1xe3m0_bf16)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_f16_e3m0_e2m1, uint16_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fqwmacc4_e3m0xe2m1)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e3m0_e2m1, uint16_t,
-        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
-        fqwmacc4_e3m0xe2m1_bf16)
 
 typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
@@ -1285,33 +1131,33 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
                   gen_helper_vfwmmacc_vv_bf16_e4m3,
                   NULL, NULL }
             },
-            /* altfmt_b = 1 (mixed: A=e2m1/e4m3/f16, B=e3m0/e5m2/bf16) */
+            /* altfmt_b = 1 (mixed: A=e2m1/e4m3/f16, B=e5m2/bf16; E3M0 reserved) */
             {
-                { gen_helper_vfwmmacc_vv_e4m3_e2m1_e3m0,
+                { NULL,
                   gen_helper_vfwmmacc_vv_f16_e4m3_e5m2,
                   gen_helper_vfwmmacc_vv_f32_f16_bf16, NULL },
-                { gen_helper_vfwmmacc_vv_e5m2_e2m1_e3m0,
+                { NULL,
                   gen_helper_vfwmmacc_vv_bf16_e4m3_e5m2,
                   NULL, NULL }
             }
         },
         /* altfmt_a = 1 */
         {
-            /* altfmt_b = 0 (mixed: A=e3m0/e5m2/bf16, B=e2m1/e4m3/f16) */
+            /* altfmt_b = 0 (mixed: A=e5m2/bf16, B=e4m3/f16; E3M0 reserved) */
             {
-                { gen_helper_vfwmmacc_vv_e4m3_e3m0_e2m1,
+                { NULL,
                   gen_helper_vfwmmacc_vv_f16_e5m2_e4m3,
                   gen_helper_vfwmmacc_vv_f32_bf16_f16, NULL },
-                { gen_helper_vfwmmacc_vv_e5m2_e3m0_e2m1,
+                { NULL,
                   gen_helper_vfwmmacc_vv_bf16_e5m2_e4m3,
                   NULL, NULL }
             },
-            /* altfmt_b = 1 (same) */
+            /* altfmt_b = 1 (same; E3M0 reserved) */
             {
-                { gen_helper_vfwmmacc_vv_e4m3_e3m0,
+                { NULL,
                   gen_helper_vfwmmacc_vv_f16_e5m2,
                   gen_helper_vfwmmacc_vv_f32_bf16, NULL },
-                { gen_helper_vfwmmacc_vv_e5m2_e3m0,
+                { NULL,
                   gen_helper_vfwmmacc_vv_bf16_e5m2,
                   NULL, NULL }
             }
@@ -1327,13 +1173,13 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
             { CPU_CFG_OFFSET(ext_zvvfmmofp4opf8), CPU_CFG_OFFSET(ext_zvvfmmofp8bf16),
               0, 0 }
         },
-        /* altfmt_a = 1 */
+        /* altfmt_a = 1 (sew=0 is E3M0, now reserved; use 0 to block it) */
         {
             /* altfmt = 0 */
-            { CPU_CFG_OFFSET(ext_zvvfmmofp4opf8), CPU_CFG_OFFSET(ext_zvvfmmofp8h),
-              CPU_CFG_OFFSET(ext_zvvfmmbf16f),    0 },
+            { 0, CPU_CFG_OFFSET(ext_zvvfmmofp8h),
+              CPU_CFG_OFFSET(ext_zvvfmmbf16f), 0 },
             /* altfmt = 1 */
-            { CPU_CFG_OFFSET(ext_zvvfmmofp4opf8), CPU_CFG_OFFSET(ext_zvvfmmofp8bf16),
+            { 0, CPU_CFG_OFFSET(ext_zvvfmmofp8bf16),
               0, 0 }
         }
     };
@@ -1352,29 +1198,29 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
                   gen_helper_vfqwmmacc_vv_f64_f16 },
                 { NULL, gen_helper_vfqwmmacc_vv_bf16_e2m1, NULL, NULL }
             },
-            /* altfmt_b = 1 (mixed) */
+            /* altfmt_b = 1 (E3M0 B reserved) */
             {
-                { NULL, gen_helper_vfqwmmacc_vv_f16_e2m1_e3m0,
+                { NULL, NULL,
                   gen_helper_vfqwmmacc_vv_f32_e4m3_e5m2,
                   gen_helper_vfqwmmacc_vv_f64_f16_bf16 },
-                { NULL, gen_helper_vfqwmmacc_vv_bf16_e2m1_e3m0, NULL, NULL }
+                { NULL, NULL, NULL, NULL }
             }
         },
-        /* altfmt_a = 1 */
+        /* altfmt_a = 1 (sew=1 E3M0 A reserved) */
         {
-            /* altfmt_b = 0 (mixed) */
+            /* altfmt_b = 0 (E3M0 A reserved) */
             {
-                { NULL, gen_helper_vfqwmmacc_vv_f16_e3m0_e2m1,
+                { NULL, NULL,
                   gen_helper_vfqwmmacc_vv_f32_e5m2_e4m3,
                   gen_helper_vfqwmmacc_vv_f64_bf16_f16 },
-                { NULL, gen_helper_vfqwmmacc_vv_bf16_e3m0_e2m1, NULL, NULL }
+                { NULL, NULL, NULL, NULL }
             },
-            /* altfmt_b = 1 (same) */
+            /* altfmt_b = 1 (E3M0 A+B reserved) */
             {
-                { NULL, gen_helper_vfqwmmacc_vv_f16_e3m0,
+                { NULL, NULL,
                   gen_helper_vfqwmmacc_vv_f32_e5m2,
                   gen_helper_vfqwmmacc_vv_f64_bf16 },
-                { NULL, gen_helper_vfqwmmacc_vv_bf16_e3m0, NULL, NULL }
+                { NULL, NULL, NULL, NULL }
             }
         }
     };
@@ -1387,13 +1233,13 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
             /* altfmt = 1 */
             { 0, CPU_CFG_OFFSET(ext_zvvfmmofp4bf16), 0, 0 }
         },
-        /* altfmt_a = 1 */
+        /* altfmt_a = 1 (sew=1 is E3M0, now reserved; use 0 to block it) */
         {
             /* altfmt = 0 */
-            { 0, CPU_CFG_OFFSET(ext_zvvfmmofp4h),
+            { 0, 0,
               CPU_CFG_OFFSET(ext_zvvfmmofp8w), CPU_CFG_OFFSET(ext_zvvfmmbf16d) },
             /* altfmt = 1 */
-            { 0, CPU_CFG_OFFSET(ext_zvvfmmofp4bf16), 0, 0 }
+            { 0, 0, 0, 0 }
         }
     };
     return zvvmm_fmacc_trans(s, a, fns, ext_offsets, 4);
