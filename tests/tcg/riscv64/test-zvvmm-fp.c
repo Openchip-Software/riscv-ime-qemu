@@ -749,7 +749,7 @@ static int test_vfqwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
  * FP4 values are packed as nibbles (2 per byte). We use all-1.0 inputs
  * so the exact nibble-to-register mapping is irrelevant (uniform fill).
  *
- * FP4 formats: e2m1 (altfmt_a/b=0), e3m0 (altfmt_a/b=1)
+ * FP4 format: e2m1 (altfmt_a/b=0) only; e3m0 (altfmt_a/b=1) is reserved.
  * Accumulator: e4m3 (altfmt=0), e5m2 (altfmt=1)
  * ==================================================================== */
 
@@ -1059,6 +1059,18 @@ int main(void)
                                        1, 0, 0, "vfwmmacc e2m1->e5m2");
             tests++;
 
+#if 0
+            /*
+             * TC-FP-27 through TC-FP-32: E3M0 4-bit FP inputs — SKIPPED
+             *
+             * E3M0 (altfmt_A = altfmt_B = 1 for 4-bit EEW) was removed from
+             * the Zvvmm FP MACC specification.  These encodings are now
+             * reserved and raise an illegal-instruction exception.  Verifying
+             * that reserved encodings trap correctly requires a SIGILL handler
+             * with setjmp/longjmp recovery, which this test harness does not
+             * provide.  The cases are kept here for documentation purposes.
+             */
+
             /* TC-FP-27: e3m0×e3m0 → e4m3 */
             fail |= test_vfwmmacc_fp4(lmul, lambda, vlenb,
                                        0, 1, 1, "vfwmmacc e3m0->e4m3");
@@ -1088,6 +1100,7 @@ int main(void)
             fail |= test_vfwmmacc_fp4(lmul, lambda, vlenb,
                                        1, 1, 0, "vfwmmacc e3m0xe2m1->e5m2");
             tests++;
+#endif
 
             /* --- Remaining vfwmmacc non-FP4 gaps --- */
 
@@ -1133,6 +1146,17 @@ int main(void)
                                         1, 0, 0, "vfqwmmacc e2m1->bf16");
             tests++;
 
+#if 0
+            /*
+             * TC-FP-41 through TC-FP-46: E3M0 4-bit FP inputs — SKIPPED
+             *
+             * Same rationale as TC-FP-27..32 above: E3M0 has been removed
+             * from the Zvvmm FP MACC specification.  altfmt_A = altfmt_B = 1
+             * for 4-bit EEW is a reserved encoding that raises an
+             * illegal-instruction exception, and this harness has no SIGILL
+             * recovery infrastructure to test that behaviour.
+             */
+
             /* TC-FP-41: e3m0 → f16 */
             fail |= test_vfqwmmacc_fp4(lmul, lambda, vlenb,
                                         0, 1, 1, "vfqwmmacc e3m0->f16");
@@ -1162,6 +1186,7 @@ int main(void)
             fail |= test_vfqwmmacc_fp4(lmul, lambda, vlenb,
                                         1, 1, 0, "vfqwmmacc e3m0xe2m1->bf16");
             tests++;
+#endif
 
             /* --- Remaining vfqwmmacc non-FP4 gaps --- */
 
