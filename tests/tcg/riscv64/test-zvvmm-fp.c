@@ -27,6 +27,7 @@
 #define INSN_VFMMACC_VV   0x52041857u  /* funct6=010100 */
 #define INSN_VFWMMACC_VV  0x56041857u  /* funct6=010101 */
 #define INSN_VFQWMMACC_VV 0x5A041857u  /* funct6=010110 */
+#define INSN_VF8WMMACC_VV 0x5E041857u  /* funct6=010111 */
 
 /* Tile load/store (same as integer test) */
 #define INSN_VMTL_V0   (4u << 26 | 1u << 25 | 11u << 20 | 10u << 15 | \
@@ -64,8 +65,8 @@ static inline uint64_t set_macc_vtype(int sew_bytes, int lmul, int lambda,
     uint64_t vtype = (uint64_t)__builtin_ctz(lmul)
                    | ((uint64_t)__builtin_ctz(sew_bytes) << 3)
                    | ((uint64_t)altfmt << 8)
-                   | ((uint64_t)altfmt_a << 9)
-                   | ((uint64_t)altfmt_b << 10)
+                   | ((uint64_t)altfmt_a << 59)
+                   | ((uint64_t)altfmt_b << 58)
                    | ((uint64_t)(__builtin_ctz(lambda) + 1) << 60);
     uint64_t vl;
     asm volatile("vsetvl %0, zero, %1" : "=r"(vl) : "r"(vtype));
@@ -79,8 +80,8 @@ static inline uint64_t set_macc_vtype_vl(int sew_bytes, int lmul, int lambda,
     uint64_t vtype = (uint64_t)__builtin_ctz(lmul)
                    | ((uint64_t)__builtin_ctz(sew_bytes) << 3)
                    | ((uint64_t)altfmt << 8)
-                   | ((uint64_t)altfmt_a << 9)
-                   | ((uint64_t)altfmt_b << 10)
+                   | ((uint64_t)altfmt_a << 59)
+                   | ((uint64_t)altfmt_b << 58)
                    | ((uint64_t)(__builtin_ctz(lambda) + 1) << 60);
     uint64_t vl;
     asm volatile("vsetvl %0, %1, %2" : "=r"(vl) : "r"(avl), "r"(vtype));
@@ -908,6 +909,160 @@ static int test_vfqwmmacc_fp4(int lmul, int lambda, uint64_t vlenb,
 }
 
 /* ====================================================================
+ * Test: 8x widening vf8wmmacc.vv — byte-aligned inputs (OFP8 → FP64)
+ *
+ * Follows the same structure as test_vfqwmmacc but with W=8.
+ * Only SEW=64 with OFP8 inputs (altfmt_a/b select E4M3/E5M2).
+ * Uses all-1.0 inputs (exact in both E4M3 and E5M2).
+ * ==================================================================== */
+
+static int test_vf8wmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
+                           int altfmt, int altfmt_a, int altfmt_b,
+                           const char *label)
+{
+    int input_sew = accum_sew / 8;
+    int W = 8;
+    int M = vlenb / (accum_sew * lambda);
+    int N = M;
+    int K = lambda * W * lmul;
+    int linesize_load = lambda * lmul;
+    int mu_load = vlenb / (input_sew * lambda);
+    int mul_c = vlenb / (accum_sew * lambda * lambda);
+    int linesize_c = lambda * lmul;
+
+    if (M < W || mul_c != lmul || input_sew < 1) {
+        return 0;
+    }
+
+    int N_active = M / W;
+    int a_ld = linesize_load;
+    int b_ld = linesize_load;
+    int c_ld = linesize_c;
+    int c_nelem = M * N;
+
+    /* FP8 inputs: use all 1.0 so result is exact (C[i,j] = K) */
+    uint8_t *A_buf = calloc(mu_load * a_ld, input_sew);
+    uint8_t *B_buf = calloc(mu_load * b_ld, input_sew);
+    uint8_t *C_dst = calloc(c_nelem, accum_sew);
+
+    for (int row = 0; row < M; row++) {
+        for (int k = 0; k < K; k++) {
+            int tr = W * row + k / linesize_load;
+            int tc = k % linesize_load;
+            uint64_t raw = int_to_fp_raw(1, input_sew, altfmt_a);
+            write_elem(A_buf, tr * a_ld + tc, input_sew, raw);
+        }
+    }
+
+    for (int col = 0; col < N; col++) {
+        for (int k = 0; k < K; k++) {
+            int tr = W * col + k / linesize_load;
+            int tc = k % linesize_load;
+            uint64_t raw = int_to_fp_raw(1, input_sew, altfmt_b);
+            write_elem(B_buf, tr * b_ld + tc, input_sew, raw);
+        }
+    }
+
+    set_macc_vtype(input_sew, lmul, lambda, altfmt, altfmt_a, altfmt_b);
+    DO_TILE(INSN_VMTL_V8, A_buf, (uint64_t)a_ld);
+    DO_TILE(INSN_VMTL_V0, B_buf, (uint64_t)b_ld);
+
+    set_macc_vtype(accum_sew, lmul, lambda, altfmt, altfmt_a, altfmt_b);
+    DO_VXOR_V16();
+    DO_MACC(INSN_VF8WMMACC_VV);
+    DO_TILE(INSN_VMTS_V16, C_dst, (uint64_t)c_ld);
+
+    int fail = 0;
+    double ref_acc = (double)K;  /* K × 1.0 × 1.0 */
+    uint64_t expected = double_to_fp_raw(ref_acc, accum_sew, altfmt);
+
+    for (int row = 0; row < M; row++) {
+        for (int col = 0; col < N_active; col++) {
+            int flat = col * M + row;
+            uint64_t got = read_elem(C_dst, flat, accum_sew);
+            if (got != expected) {
+                printf("FAIL %s e%d->e%d m%d l%d: C[%d][%d] "
+                       "got 0x%lx exp 0x%lx (ref=%.6g)\n",
+                       label, input_sew * 8, accum_sew * 8, lmul, lambda,
+                       row, col,
+                       (unsigned long)got, (unsigned long)expected, ref_acc);
+                fail = 1;
+            }
+        }
+    }
+
+    free(A_buf); free(B_buf); free(C_dst);
+    return fail;
+}
+
+/* ====================================================================
+ * Test: 8x widening vf8wmmacc.vv with FP4 inputs (E2M1 → FP32)
+ *
+ * FP4 E2M1 packed as nibbles. All-1.0 inputs.
+ * accum_sew=4 (FP32), altfmt=0 (FP32 output).
+ * ==================================================================== */
+
+static int test_vf8wmmacc_fp4(int lmul, int lambda, uint64_t vlenb,
+                               int altfmt, const char *label)
+{
+    int accum_sew = 4;   /* e32 = FP32 */
+    int W = 8;
+    int k_eff = lambda * W * lmul;
+    int M = vlenb / (accum_sew * lambda);
+    int N = M;
+    int mul_c = vlenb / (accum_sew * lambda * lambda);
+    int linesize_load = lambda * lmul;
+
+    if (M < W || mul_c != lmul) {
+        return 0;
+    }
+
+    int load_sew = 1;  /* load at e8, nibbles packed within bytes */
+    int mu_load = vlenb / (load_sew * lambda);
+    int byte_count = mu_load * linesize_load;
+
+    uint8_t *A_buf = calloc(byte_count, 1);
+    uint8_t *B_buf = calloc(byte_count, 1);
+    uint8_t *C_dst = calloc(M * N, accum_sew);
+
+    /* FP4 E2M1: 1.0 = 0x2 (sign=0, exp=01, man=0 → 2^(1-1) × 1.0 = 1.0).
+     * Two 1.0 nibbles packed per byte: (0x2 << 4) | 0x2 = 0x22 */
+    memset(A_buf, 0x22, byte_count);
+    memset(B_buf, 0x22, byte_count);
+
+    set_macc_vtype(load_sew, lmul, lambda, altfmt, 0, 0);
+    DO_TILE(INSN_VMTL_V8, A_buf, (uint64_t)linesize_load);
+    DO_TILE(INSN_VMTL_V0, B_buf, (uint64_t)linesize_load);
+
+    set_macc_vtype(accum_sew, lmul, lambda, altfmt, 0, 0);
+    DO_VXOR_V16();
+    DO_MACC(INSN_VF8WMMACC_VV);
+    DO_TILE(INSN_VMTS_V16, C_dst, (uint64_t)(lambda * lmul));
+
+    int fail = 0;
+    double ref_acc = (double)k_eff;  /* k_eff × 1.0 × 1.0 */
+    uint64_t expected = double_to_fp_raw(ref_acc, accum_sew, altfmt);
+
+    int N_active = M / W;
+    for (int row = 0; row < M; row++) {
+        for (int col = 0; col < N_active; col++) {
+            int flat = col * M + row;
+            uint64_t got = read_elem(C_dst, flat, accum_sew);
+            if (got != expected) {
+                printf("FAIL %s fp4->f32 m%d l%d: C[%d][%d] "
+                       "got 0x%lx exp 0x%lx (ref=%.6g)\n",
+                       label, lmul, lambda, row, col,
+                       (unsigned long)got, (unsigned long)expected, ref_acc);
+                fail = 1;
+            }
+        }
+    }
+
+    free(A_buf); free(B_buf); free(C_dst);
+    return fail;
+}
+
+/* ====================================================================
  * Main
  * ==================================================================== */
 
@@ -1203,6 +1358,39 @@ int main(void)
             /* TC-FP-49: bf16×f16 → f64 */
             fail |= test_vfqwmmacc(8, lmul, lambda, vlenb,
                                     0, 1, 0, "vfqwmmacc bf16xf16->f64");
+            tests++;
+        }
+    }
+
+    /* Octet-widening FP tests: vf8wmmacc (W=8) */
+    for (int li = 0; li < 4; li++) {
+        for (int ai = 0; ai < 4; ai++) {
+            int lmul   = lmuls[li];
+            int lambda = lambdas[ai];
+
+            /* TC-FP-50: E2M1→FP32 (SEW=32, input is 4-bit) */
+            fail |= test_vf8wmmacc_fp4(lmul, lambda, vlenb,
+                                       0, "vf8wmmacc e2m1->f32");
+            tests++;
+
+            /* TC-FP-51: E4M3→FP64 (SEW=64, input is 8-bit) */
+            fail |= test_vf8wmmacc(8, lmul, lambda, vlenb,
+                                    0, 0, 0, "vf8wmmacc e4m3->f64");
+            tests++;
+
+            /* TC-FP-52: E5M2→FP64 */
+            fail |= test_vf8wmmacc(8, lmul, lambda, vlenb,
+                                    0, 1, 1, "vf8wmmacc e5m2->f64");
+            tests++;
+
+            /* TC-FP-53: E4M3×E5M2→FP64 (mixed) */
+            fail |= test_vf8wmmacc(8, lmul, lambda, vlenb,
+                                    0, 0, 1, "vf8wmmacc e4m3xe5m2->f64");
+            tests++;
+
+            /* TC-FP-54: E5M2×E4M3→FP64 (mixed) */
+            fail |= test_vf8wmmacc(8, lmul, lambda, vlenb,
+                                    0, 1, 0, "vf8wmmacc e5m2xe4m3->f64");
             tests++;
         }
     }
