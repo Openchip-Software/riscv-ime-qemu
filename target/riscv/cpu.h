@@ -192,9 +192,11 @@ FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, ALTFMT, 8, 1)
-FIELD(VTYPE, ALTFMT_A, 9, 1)
-FIELD(VTYPE, ALTFMT_B, 10, 1)
-FIELD(VTYPE, RESERVED, 11, sizeof(target_ulong) * 8 - 12)
+FIELD(VTYPE, RESERVED, 9, sizeof(target_ulong) * 8 - 10)
+/* Zvvm upper vtype fields (below lambda[2:0] at [XLEN-2:XLEN-4]) */
+FIELD(VTYPE, ALTFMT_A, 59, 1) /* vtype[XLEN-5] */
+FIELD(VTYPE, ALTFMT_B, 58, 1) /* vtype[XLEN-6] */
+FIELD(VTYPE, BS, 57, 1)       /* vtype[XLEN-7], microscaling block size */
 
 typedef struct PMUCTRState {
     /* Current value of a counter */
@@ -712,6 +714,7 @@ FIELD(EXT_TB_FLAGS, ALTFMT, 32, 1)
 FIELD(EXT_TB_FLAGS, ALTFMT_A, 33, 1)
 FIELD(EXT_TB_FLAGS, ALTFMT_B, 34, 1)
 FIELD(EXT_TB_FLAGS, VLAMBDA, 35, 3)
+FIELD(EXT_TB_FLAGS, BS, 38, 1)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)

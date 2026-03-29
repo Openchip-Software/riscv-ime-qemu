@@ -240,6 +240,7 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(zvvfmmf, PRIV_VERSION_1_12_0, ext_zvvfmmf),
     ISA_EXT_DATA_ENTRY(zvvfmmfd, PRIV_VERSION_1_12_0, ext_zvvfmmfd),
     ISA_EXT_DATA_ENTRY(zvvfmmd, PRIV_VERSION_1_12_0, ext_zvvfmmd),
+    ISA_EXT_DATA_ENTRY(zvvfmmmx, PRIV_VERSION_1_12_0, ext_zvvfmmmx),
     ISA_EXT_DATA_ENTRY(zhinx, PRIV_VERSION_1_12_0, ext_zhinx),
     ISA_EXT_DATA_ENTRY(zhinxmin, PRIV_VERSION_1_12_0, ext_zhinxmin),
     ISA_EXT_DATA_ENTRY(sdtrig, PRIV_VERSION_1_12_0, debug),
@@ -1428,9 +1429,11 @@ const RISCVCPUMultiExtConfig riscv_cpu_experimental_exts[] = {
     /* IME integer (Zvvmm) sub-extensions */
     MULTI_EXT_CFG_BOOL("x-zvvmmi4b", ext_zvvmmi4b, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmi4h", ext_zvvmmi4h, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmi4w", ext_zvvmmi4w, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmb", ext_zvvmmb, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmbh", ext_zvvmmbh, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmbw", ext_zvvmmbw, false),
+    MULTI_EXT_CFG_BOOL("x-zvvmmbd", ext_zvvmmbd, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmh", ext_zvvmmh, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmhw", ext_zvvmmhw, false),
     MULTI_EXT_CFG_BOOL("x-zvvmmhd", ext_zvvmmhd, false),
@@ -1445,6 +1448,8 @@ const RISCVCPUMultiExtConfig riscv_cpu_experimental_exts[] = {
     MULTI_EXT_CFG_BOOL("x-zvvfmmofp8h", ext_zvvfmmofp8h, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmofp8bf16", ext_zvvfmmofp8bf16, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmofp8w", ext_zvvfmmofp8w, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp8d", ext_zvvfmmofp8d, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmofp4w", ext_zvvfmmofp4w, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmh", ext_zvvfmmh, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmhf", ext_zvvfmmhf, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmhd", ext_zvvfmmhd, false),
@@ -1454,6 +1459,7 @@ const RISCVCPUMultiExtConfig riscv_cpu_experimental_exts[] = {
     MULTI_EXT_CFG_BOOL("x-zvvfmmf", ext_zvvfmmf, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmfd", ext_zvvfmmfd, false),
     MULTI_EXT_CFG_BOOL("x-zvvfmmd", ext_zvvfmmd, false),
+    MULTI_EXT_CFG_BOOL("x-zvvfmmmx", ext_zvvfmmmx, false),
 
     { },
 };
