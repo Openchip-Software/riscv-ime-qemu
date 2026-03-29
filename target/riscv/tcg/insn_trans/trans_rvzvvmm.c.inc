@@ -187,6 +187,379 @@ static void load_nibble_element(TCGv_i64 dest, TCGv_ptr base,
     }                                                                   \
 }
 
+/*
+ * GEN_ZVVMM_VFMMACC_VV_MX — like GEN_ZVVMM_VFMMACC_VV but for vm=0
+ * (microscaling).  For each output element (i,j), the combined E8M0 scale
+ * factor is read from v0[i*R + j] (16-bit: scale_A=[7:0], scale_B=[15:8]),
+ * converted to a combined float32 scale, and applied to the inner product
+ * before accumulating:
+ *
+ *   ip = 0; for k: ip = OP(a[k], b[k], ip, fs)  (inner product in type TD)
+ *   scale_td = SCALE_TO_TD(scale_A_f32 × scale_B_f32)
+ *   *c_ptr = FMA_TD(scale_td, ip, *c_ptr, 0, fs)  (scaled add-to-acc)
+ *
+ * SCALE_TO_TD(f32, fs): converts float32 combined scale to type TD.
+ * FMA_TD(a, b, c, flags, fs): the output-type FMA function.
+ */
+#define GEN_ZVVMM_VFMMACC_VV_MX(NAME, TD, T1, T2, TX1, TX2, OP,        \
+                                  SCALE_TO_TD, FMA_TD)                   \
+    void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
+                  void *vs2, CPURISCVState *env,                        \
+                  uint32_t desc)                                        \
+{                                                                       \
+    const uint32_t widening = sizeof(TD) / sizeof(T1);                  \
+    const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;                   \
+    const uint8_t  vsew = FIELD_EX64(env->vtype, VTYPE, VSEW);         \
+    const uint8_t  sewb = 1 << vsew;                                    \
+    const uint32_t SEW_bits = 8u << vsew;                               \
+    const uint8_t  vlambda = vext_vlambda(desc);                        \
+    if (vlambda == 0)                                                   \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+    const uint8_t  lambda = 1 << (vlambda - 1);                         \
+    const uint8_t  lmul = 1 << vext_lmul(desc);                        \
+    const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
+    float_status *fs = &env->fp_status;                                 \
+                                                                        \
+    const uint16_t k_eff = lambda * lmul * widening;                    \
+    const uint16_t M = vlenb / (sewb * lambda);                         \
+    const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    /* R = λ × SEW_bits / 16 (row stride in v0) */                     \
+    const uint16_t R = lambda * SEW_bits / 16;                          \
+    const uint16_t block_size = bs ? 16 : 32;                           \
+    const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    uint32_t vl = env->vl;                                              \
+                                                                        \
+    if (vl % k_eff)                                                     \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+                                                                        \
+    const uint16_t N = vl / k_eff;                                      \
+                                                                        \
+    for (int j = 0; j < N; ++j) {                                       \
+        for (int i = 0; i < M; ++i) {                                   \
+            uint8_t regoff;                                             \
+            uint16_t elemoff;                                           \
+                                                                        \
+            tile_regoffset(j * M + i, mul_c, lambda,                   \
+                           &regoff, &elemoff);                          \
+            TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
+                              [ELEM_H(elemoff, sizeof(TD))];            \
+            TD c_elem = *c_elem_ptr;                                    \
+                                                                        \
+            for (int s = 0; s < S; ++s) {                               \
+                /* Load scale pair from v0[i * R + j * S + s] */       \
+                uint32_t sf = (uint32_t)i * R + j * S + s;             \
+                uint32_t s_reg = sf / (vlenb / 2);                     \
+                uint32_t s_elem = sf % (vlenb / 2);                    \
+                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
+                               [H2(s_elem)];                            \
+                float32 sc = float32_mul(                               \
+                    e8m0_to_float32(sp & 0xFF),                         \
+                    e8m0_to_float32(sp >> 8), fs);                      \
+                TD scale_td = SCALE_TO_TD(sc, fs);                     \
+                                                                        \
+                /* Block inner product */                               \
+                TD ip = (TD)0;                                          \
+                int k_start = s * block_size;                           \
+                int k_end = k_start + block_size;                       \
+                if (k_end > k_eff) k_end = k_eff;                      \
+                for (int k = k_start; k < k_end; ++k) {                \
+                    tile_regoffset(i * k_eff + k, lmul, lambda,        \
+                                   &regoff, &elemoff);                  \
+                    TX1 a = ((T1 *)(vs1 + regoff * vlenb))              \
+                             [ELEM_H(elemoff, sizeof(T1))];             \
+                                                                        \
+                    tile_regoffset(j * k_eff + k, lmul, lambda,        \
+                                   &regoff, &elemoff);                  \
+                    TX2 b = ((T2 *)(vs2 + regoff * vlenb))              \
+                             [ELEM_H(elemoff, sizeof(T2))];             \
+                                                                        \
+                    ip = OP(a, b, ip, fs);                              \
+                }                                                       \
+                                                                        \
+                /* Accumulate: c_elem = scale_td * ip + c_elem */      \
+                c_elem = FMA_TD(scale_td, ip, c_elem, 0, fs);          \
+            }                                                           \
+            *c_elem_ptr = c_elem;                                       \
+        }                                                               \
+    }                                                                   \
+}
+
+/*
+ * Microscaling 4-bit variant: nibble-packed inputs (E2M1 only; E3M0 reserved).
+ * Scale loading from v0 uses the same logic as GEN_ZVVMM_VFMMACC_VV_MX.
+ */
+#define GEN_ZVVMM_VFMMACC_VV_MX_4BIT(NAME, TD, TEXTA, TEXTB,           \
+                                       EXTA, EXTB, OP, SCALE_TO_TD,     \
+                                       FMA_TD)                           \
+    void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
+                  void *vs2, CPURISCVState *env,                        \
+                  uint32_t desc)                                        \
+{                                                                       \
+    const uint32_t widening = sizeof(TD) * 2; /* SEW bits / 4 bits */   \
+    const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;                   \
+    const uint8_t  vsew = FIELD_EX64(env->vtype, VTYPE, VSEW);         \
+    const uint8_t  sewb = 1 << vsew;                                    \
+    const uint32_t SEW_bits = 8u << vsew;                               \
+    const uint8_t  vlambda = vext_vlambda(desc);                        \
+    if (vlambda == 0)                                                   \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+    const uint8_t  lambda = 1 << (vlambda - 1);                         \
+    const uint8_t  lmul = 1 << vext_lmul(desc);                        \
+    const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
+    float_status *fs = &env->fp_status;                                 \
+                                                                        \
+    const uint16_t k_eff = lambda * lmul * widening;                    \
+    const uint16_t M = vlenb / (sewb * lambda);                         \
+    const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t R = lambda * SEW_bits / 16;                          \
+    const uint16_t block_size = bs ? 16 : 32;                           \
+    const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    uint32_t vl = env->vl;                                              \
+                                                                        \
+    if (vl % k_eff)                                                     \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+                                                                        \
+    const uint16_t N = vl / k_eff;                                      \
+                                                                        \
+    for (int j = 0; j < N; ++j) {                                       \
+        for (int i = 0; i < M; ++i) {                                   \
+            uint8_t regoff;                                             \
+            uint16_t elemoff;                                           \
+                                                                        \
+            tile_regoffset(j * M + i, mul_c, lambda,                   \
+                           &regoff, &elemoff);                          \
+            TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
+                              [ELEM_H(elemoff, sizeof(TD))];            \
+            TD c_elem = *c_elem_ptr;                                    \
+                                                                        \
+            for (int blk = 0; blk < S; ++blk) {                        \
+                uint32_t sf = (uint32_t)i * R + j * S + blk;           \
+                uint32_t s_reg = sf / (vlenb / 2);                     \
+                uint32_t s_elem = sf % (vlenb / 2);                    \
+                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
+                               [H2(s_elem)];                            \
+                float32 sc = float32_mul(                               \
+                    e8m0_to_float32(sp & 0xFF),                         \
+                    e8m0_to_float32(sp >> 8), fs);                      \
+                TD scale_td = SCALE_TO_TD(sc, fs);                     \
+                                                                        \
+                TD ip = (TD)0;                                          \
+                int k_start = blk * block_size;                         \
+                int k_end = k_start + block_size;                       \
+                if (k_end > k_eff) k_end = k_eff;                      \
+                for (int k = k_start; k < k_end; ++k) {                \
+                    TEXTA a = EXTA(vs1, vlenb,                          \
+                        i * k_eff + k, lmul, lambda);                   \
+                    TEXTB b = EXTB(vs2, vlenb,                          \
+                        j * k_eff + k, lmul, lambda);                   \
+                    ip = OP(a, b, ip, fs);                              \
+                }                                                       \
+                                                                        \
+                c_elem = FMA_TD(scale_td, ip, c_elem, 0, fs);          \
+            }                                                           \
+            *c_elem_ptr = c_elem;                                       \
+        }                                                               \
+    }                                                                   \
+}
+
+/* Scale-to-TD conversion helpers used as macro arguments */
+#define MX_SCALE_F32(sc, fs)   (sc)
+#define MX_SCALE_F64(sc, fs)   float32_to_float64(sc, fs)
+/*
+ * Helper: override default_nan_pattern for E4M3 output conversions.
+ * The RISC-V default pattern 0x40 maps to E4M3 mantissa=4 (0x7C = 384.0),
+ * not NaN (0x7F).  E4M3 NaN requires mantissa=7, which needs pattern 0x70.
+ */
+static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
+{
+    float_status local = *fs;
+    local.default_nan_pattern = 0x70;
+    uint8_t r = float32_to_float8_e4m3(v, false, &local);
+    fs->float_exception_flags |= local.float_exception_flags;
+    return r;
+}
+
+#define MX_SCALE_F16(sc, fs)   float32_to_float16(sc, false, fs)
+#define MX_SCALE_BF16(sc, fs)  float32_to_bfloat16(sc, fs)
+#define MX_SCALE_E4M3(sc, fs)  float32_to_e4m3_with_nan(sc, fs)
+#define MX_SCALE_E5M2(sc, fs)  float32_to_float8_e5m2(sc, false, fs)
+
+/* Integer-to-float32 helper for MXINT inner product accumulator (always signed) */
+#define MXINT_IP_F32_S(ip, fs)  int64_to_float32((int64_t)(ip), (fs))
+
+/*
+ * GEN_ZVVMM_VFIMMACC_VV — MXINT: byte-aligned integer inputs, FP accumulator,
+ * E8M0 microscaled (vm=0, ext_zvvfmmmx).  For each output element (i,j):
+ *
+ *   ip = 0; for k: ip += (INT_ACC)a[k] * (INT_ACC)b[k]  (integer)
+ *   ip_f32 = INT_TO_F32(ip, fs)
+ *   ip_td  = SCALE_TO_TD(ip_f32, fs)
+ *   scale_td = SCALE_TO_TD(e8m0_A × e8m0_B, fs)
+ *   *c = FMA_TD(scale_td, ip_td, *c, 0, fs)
+ */
+#define GEN_ZVVMM_VFIMMACC_VV(NAME, TD, TA, TB, INT_ACC,                \
+                               INT_TO_F32, SCALE_TO_TD, FMA_TD)         \
+    void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
+                  void *vs2, CPURISCVState *env, uint32_t desc)         \
+{                                                                       \
+    const uint32_t widening = sizeof(TD) / sizeof(TA);                  \
+    const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;                   \
+    const uint8_t  vsew = FIELD_EX64(env->vtype, VTYPE, VSEW);         \
+    const uint8_t  sewb = 1 << vsew;                                    \
+    const uint32_t SEW_bits = 8u << vsew;                               \
+    const uint8_t  vlambda = vext_vlambda(desc);                        \
+    if (vlambda == 0)                                                   \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+    const uint8_t  lambda = 1 << (vlambda - 1);                         \
+    const uint8_t  lmul = 1 << vext_lmul(desc);                        \
+    const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
+    float_status *fs = &env->fp_status;                                 \
+                                                                        \
+    const uint16_t k_eff = lambda * lmul * widening;                    \
+    const uint16_t M = vlenb / (sewb * lambda);                         \
+    const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t R = lambda * SEW_bits / 16;                          \
+    const uint16_t block_size = bs ? 16 : 32;                           \
+    const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    uint32_t vl = env->vl;                                              \
+                                                                        \
+    if (vl % k_eff)                                                     \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+                                                                        \
+    const uint16_t N = vl / k_eff;                                      \
+                                                                        \
+    for (int j = 0; j < N; ++j) {                                       \
+        for (int i = 0; i < M; ++i) {                                   \
+            uint8_t regoff;                                             \
+            uint16_t elemoff;                                           \
+                                                                        \
+            tile_regoffset(j * M + i, mul_c, lambda,                   \
+                           &regoff, &elemoff);                          \
+            TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
+                              [ELEM_H(elemoff, sizeof(TD))];            \
+            TD c_elem = *c_elem_ptr;                                    \
+                                                                        \
+            for (int blk = 0; blk < S; ++blk) {                        \
+                uint32_t sf = (uint32_t)i * R + j * S + blk;           \
+                uint32_t s_reg = sf / (vlenb / 2);                     \
+                uint32_t s_elem = sf % (vlenb / 2);                    \
+                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
+                               [H2(s_elem)];                            \
+                float32 sc = float32_mul(                               \
+                    e8m0_to_float32(sp & 0xFF),                         \
+                    e8m0_to_float32(sp >> 8), fs);                      \
+                TD scale_td = SCALE_TO_TD(sc, fs);                     \
+                                                                        \
+                /* Block integer inner product */                       \
+                INT_ACC ip = 0;                                         \
+                int k_start = blk * block_size;                         \
+                int k_end = k_start + block_size;                       \
+                if (k_end > k_eff) k_end = k_eff;                      \
+                for (int k = k_start; k < k_end; ++k) {                \
+                    tile_regoffset(i * k_eff + k, lmul, lambda,        \
+                                   &regoff, &elemoff);                  \
+                    TA a_elem = ((TA *)(vs2 + regoff * vlenb))          \
+                                 [ELEM_H(elemoff, sizeof(TA))];         \
+                                                                        \
+                    tile_regoffset(j * k_eff + k, lmul, lambda,        \
+                                   &regoff, &elemoff);                  \
+                    TB b_elem = ((TB *)(vs1 + regoff * vlenb))          \
+                                 [ELEM_H(elemoff, sizeof(TB))];         \
+                                                                        \
+                    ip += (INT_ACC)a_elem * (INT_ACC)b_elem;           \
+                }                                                       \
+                                                                        \
+                /* Scale × IP + C */                                    \
+                float32 ip_f32 = INT_TO_F32(ip, fs);                   \
+                TD ip_td = SCALE_TO_TD(ip_f32, fs);                    \
+                c_elem = FMA_TD(scale_td, ip_td, c_elem, 0, fs);       \
+            }                                                           \
+            *c_elem_ptr = c_elem;                                       \
+        }                                                               \
+    }                                                                   \
+}
+
+/*
+ * GEN_ZVVMM_VFIMMACC_VV_4BIT — MXINT nibble-packed integer inputs, FP acc.
+ * EXTA/EXTB return INT_ACC directly; returns signed or unsigned int32/uint32.
+ */
+#define GEN_ZVVMM_VFIMMACC_VV_4BIT(NAME, TD, INT_ACC,                   \
+                                    EXTA, EXTB,                          \
+                                    INT_TO_F32, SCALE_TO_TD, FMA_TD)    \
+    void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
+                  void *vs2, CPURISCVState *env, uint32_t desc)         \
+{                                                                       \
+    const uint32_t widening = sizeof(TD) * 2; /* SEW bits / 4 bits */   \
+    const uint16_t vlenb = riscv_cpu_cfg(env)->vlenb;                   \
+    const uint8_t  vsew = FIELD_EX64(env->vtype, VTYPE, VSEW);         \
+    const uint8_t  sewb = 1 << vsew;                                    \
+    const uint32_t SEW_bits = 8u << vsew;                               \
+    const uint8_t  vlambda = vext_vlambda(desc);                        \
+    if (vlambda == 0)                                                   \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+    const uint8_t  lambda = 1 << (vlambda - 1);                         \
+    const uint8_t  lmul = 1 << vext_lmul(desc);                        \
+    const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
+    float_status *fs = &env->fp_status;                                 \
+                                                                        \
+    const uint16_t k_eff = lambda * lmul * widening;                    \
+    const uint16_t M = vlenb / (sewb * lambda);                         \
+    const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t R = lambda * SEW_bits / 16;                          \
+    const uint16_t block_size = bs ? 16 : 32;                           \
+    const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    uint32_t vl = env->vl;                                              \
+                                                                        \
+    if (vl % k_eff)                                                     \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+                                                                        \
+    const uint16_t N = vl / k_eff;                                      \
+                                                                        \
+    for (int j = 0; j < N; ++j) {                                       \
+        for (int i = 0; i < M; ++i) {                                   \
+            uint8_t regoff;                                             \
+            uint16_t elemoff;                                           \
+                                                                        \
+            tile_regoffset(j * M + i, mul_c, lambda,                   \
+                           &regoff, &elemoff);                          \
+            TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
+                              [ELEM_H(elemoff, sizeof(TD))];            \
+            TD c_elem = *c_elem_ptr;                                    \
+                                                                        \
+            for (int blk = 0; blk < S; ++blk) {                        \
+                uint32_t sf = (uint32_t)i * R + j * S + blk;           \
+                uint32_t s_reg = sf / (vlenb / 2);                     \
+                uint32_t s_elem = sf % (vlenb / 2);                    \
+                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
+                               [H2(s_elem)];                            \
+                float32 sc = float32_mul(                               \
+                    e8m0_to_float32(sp & 0xFF),                         \
+                    e8m0_to_float32(sp >> 8), fs);                      \
+                TD scale_td = SCALE_TO_TD(sc, fs);                     \
+                                                                        \
+                /* Block integer inner product from nibble inputs */    \
+                INT_ACC ip = 0;                                         \
+                int k_start = blk * block_size;                         \
+                int k_end = k_start + block_size;                       \
+                if (k_end > k_eff) k_end = k_eff;                      \
+                for (int k = k_start; k < k_end; ++k) {                \
+                    INT_ACC a_elem = (INT_ACC)EXTA(vs2, vlenb,          \
+                        i * k_eff + k, lmul, lambda);                   \
+                    INT_ACC b_elem = (INT_ACC)EXTB(vs1, vlenb,          \
+                        j * k_eff + k, lmul, lambda);                   \
+                    ip += a_elem * b_elem;                              \
+                }                                                       \
+                                                                        \
+                /* Scale × IP + C */                                    \
+                float32 ip_f32 = INT_TO_F32(ip, fs);                   \
+                TD ip_td = SCALE_TO_TD(ip_f32, fs);                    \
+                c_elem = FMA_TD(scale_td, ip_td, c_elem, 0, fs);       \
+            }                                                           \
+            *c_elem_ptr = c_elem;                                       \
+        }                                                               \
+    }                                                                   \
+}
+
 #define GEN_ZVVMM_VFMMACC_VV(NAME, TD, T1, T2, TX1, TX2, OP)           \
     void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
                   void *vs2, CPURISCVState *env,                        \
@@ -389,6 +762,12 @@ static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
 #define QWOP_SUS_H int32_t, uint8_t, int8_t, uint32_t, int32_t
 #define QWOP_SUS_W int64_t, uint16_t, int16_t, uint64_t, int64_t
 
+/* octet-widening (W=8): int8 -> int64 */
+#define O8WOP_SSS_D int64_t, int8_t,  int8_t,  int64_t,  int64_t
+#define O8WOP_UUU_D int64_t, uint8_t, uint8_t, uint64_t, uint64_t
+#define O8WOP_SSU_D int64_t, int8_t,  uint8_t, int64_t,  uint64_t
+#define O8WOP_SUS_D int64_t, uint8_t, int8_t,  uint64_t, int64_t
+
 /* signed x signed */
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_b, OP_SSS_B, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_h, OP_SSS_H, DO_MACC)
@@ -455,6 +834,26 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vwmmacc_vv_b_us, int8_t,
 RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqwmmacc_vv_h_us, int16_t,
         uint32_t, int32_t, tile_extract_uint4, tile_extract_int4, DO_MACC)
 
+/* Octet-widening (W=8) Int4→Int32: 4-bit inputs, 32-bit accumulator */
+/* signed x signed */
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, v8wmmacc_vv_w, int32_t,
+        int32_t, int32_t, tile_extract_int4, tile_extract_int4, DO_MACC)
+/* unsigned x unsigned */
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, v8wmmacc_vv_w_u, uint32_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, DO_MACC)
+/* signed A x unsigned B */
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, v8wmmacc_vv_w_su, int32_t,
+        int32_t, uint32_t, tile_extract_int4, tile_extract_uint4, DO_MACC)
+/* unsigned A x signed B */
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, v8wmmacc_vv_w_us, int32_t,
+        uint32_t, int32_t, tile_extract_uint4, tile_extract_int4, DO_MACC)
+
+/* Octet-widening (W=8) Int8→Int64: byte-aligned inputs, 64-bit accumulator */
+RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d, O8WOP_SSS_D, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_u, O8WOP_UUU_D, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_su, O8WOP_SSU_D, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
+
 /*
  * 4-bit FP MACC: sub-byte elements packed two per byte in little-endian
  * nibble order (same layout as Int4).  The OP callback takes float_status *.
@@ -517,11 +916,68 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqwmmacc_vv_h_us, int16_t,
     }                                                                   \
 }
 
+/*
+ * E8M0 decode helpers for microscaling.
+ *
+ * E8M0 is a 8-bit biased exponent format (bias 127), with no mantissa or sign
+ * bit, encoding powers of 2 from 2^-127 to 2^127.  0xFF encodes NaN.
+ *
+ * float32 has the same exponent bias (127), so for e8m0 in [1,254] the float32
+ * bit pattern is simply (uint32_t)e8m0 << 23.  E8M0 = 0 (2^-127) is the only
+ * case that requires special treatment: float32 exponent = 0 is subnormal, so
+ * 2^-127 = 2^-126 × 0.5 needs mantissa bit 22 set → float32 = 0x00400000.
+ *
+ * float64 can represent all E8M0 values as normal numbers: the float64
+ * exponent bias is 1023, so float64_exp = e8m0 + (1023 - 127) = e8m0 + 896.
+ *
+ * bfloat16 shares float32's exponent format (bias 127, 8 exp bits), so it
+ * has the same special cases as float32 (e8m0=0 is subnormal at 0x0040).
+ */
+static float32 G_GNUC_UNUSED e8m0_to_float32(uint8_t e8m0)
+{
+    if (e8m0 == 0xFF) {
+        return float32_default_nan(NULL);
+    }
+    if (e8m0 == 0x00) {
+        return make_float32(0x00400000); /* 2^-127 as float32 subnormal */
+    }
+    return make_float32((uint32_t)e8m0 << 23);
+}
+
+static float64 G_GNUC_UNUSED e8m0_to_float64(uint8_t e8m0)
+{
+    if (e8m0 == 0xFF) {
+        return float64_default_nan(NULL);
+    }
+    return make_float64((uint64_t)(e8m0 + 896) << 52);
+}
+
+static bfloat16 G_GNUC_UNUSED e8m0_to_bfloat16(uint8_t e8m0)
+{
+    if (e8m0 == 0xFF) {
+        return 0x7FC0; /* bfloat16 quiet NaN */
+    }
+    if (e8m0 == 0x00) {
+        return 0x0040; /* 2^-127 as bfloat16 subnormal */
+    }
+    return (bfloat16)((uint16_t)e8m0 << 7);
+}
+
 /* Vector Single-Width Floating-Point Fused Multiply-Add Instructions */
+/*
+ * E4M3 muladd needs default_nan_pattern=0x70 so that the default NaN
+ * packs to 0x7F (the only E4M3 NaN encoding).  The RISC-V default
+ * pattern 0x40 produces 0x7C (a normal value) in E4M3, which silently
+ * converts NaN to a finite number.
+ */
 static float8_e4m3 fmacc8_e4m3(uint8_t a, uint8_t b, uint8_t d,
                                 float_status *fs)
 {
-    return float8_e4m3_muladd(a, b, d, 0, fs);
+    float_status local = *fs;
+    local.default_nan_pattern = 0x70;
+    uint8_t r = float8_e4m3_muladd(a, b, d, 0, &local);
+    fs->float_exception_flags |= local.float_exception_flags;
+    return r;
 }
 
 static float8_e5m2 fmacc8_e5m2(uint8_t a, uint8_t b, uint8_t d,
@@ -544,20 +1000,20 @@ static uint8_t fmacc8_e4m3_to_e5m2(uint8_t a, uint8_t b, uint8_t d,
 static uint8_t fmacc8_e5m2_to_e4m3(uint8_t a, uint8_t b, uint8_t d,
                                      float_status *fs)
 {
-    return float32_to_float8_e4m3(
+    return float32_to_e4m3_with_nan(
         float32_muladd(float8_e5m2_to_float32(a, fs),
                        float8_e5m2_to_float32(b, fs),
-                       float8_e4m3_to_float32(d, fs), 0, fs), false, fs);
+                       float8_e4m3_to_float32(d, fs), 0, fs), fs);
 }
 
 /* Mixed-input: e4m3 × e5m2 → e4m3 */
 static uint8_t fmacc8_e4m3xe5m2(uint8_t a, uint8_t b, uint8_t d,
                                  float_status *fs)
 {
-    return float32_to_float8_e4m3(
+    return float32_to_e4m3_with_nan(
         float32_muladd(float8_e4m3_to_float32(a, fs),
                        float8_e5m2_to_float32(b, fs),
-                       float8_e4m3_to_float32(d, fs), 0, fs), false, fs);
+                       float8_e4m3_to_float32(d, fs), 0, fs), fs);
 }
 
 /* Mixed-input: e4m3 × e5m2 → e5m2 */
@@ -574,10 +1030,10 @@ static uint8_t fmacc8_e4m3xe5m2_to_e5m2(uint8_t a, uint8_t b, uint8_t d,
 static uint8_t fmacc8_e5m2xe4m3(uint8_t a, uint8_t b, uint8_t d,
                                  float_status *fs)
 {
-    return float32_to_float8_e4m3(
+    return float32_to_e4m3_with_nan(
         float32_muladd(float8_e5m2_to_float32(a, fs),
                        float8_e4m3_to_float32(b, fs),
-                       float8_e4m3_to_float32(d, fs), 0, fs), false, fs);
+                       float8_e4m3_to_float32(d, fs), 0, fs), fs);
 }
 
 /* Mixed-input: e5m2 × e4m3 → e5m2 */
@@ -919,6 +1375,52 @@ static uint16_t fqwmacc4_e2m1_bf16(uint32_t a_raw, uint32_t b_raw, uint16_t d,
         d, 0, fs);
 }
 
+/* Octet-widening (W=8) FP4 E2M1 → FP32 */
+static uint32_t fo8wmacc4_e2m1(uint32_t a_raw, uint32_t b_raw, uint32_t d,
+                                float_status *fs)
+{
+    /* E2M1→float16→float32, multiply in float32, accumulate */
+    float32 fa = float16_to_float32(
+                     float4_e2m1_to_float16(make_float4_e2m1(a_raw), fs),
+                     true, fs);
+    float32 fb = float16_to_float32(
+                     float4_e2m1_to_float16(make_float4_e2m1(b_raw), fs),
+                     true, fs);
+    return float32_muladd(fa, fb, d, 0, fs);
+}
+
+/* Octet-widening (W=8) FP8 E4M3 → FP64 */
+static uint64_t fo8wmacc8_e4m3(uint8_t a, uint8_t b, uint64_t d,
+                                float_status *fs)
+{
+    return float64_muladd(float8_e4m3_to_float64(a, fs),
+                          float8_e4m3_to_float64(b, fs), d, 0, fs);
+}
+
+/* Octet-widening (W=8) FP8 E5M2 → FP64 */
+static uint64_t fo8wmacc8_e5m2(uint8_t a, uint8_t b, uint64_t d,
+                                float_status *fs)
+{
+    return float64_muladd(float8_e5m2_to_float64(a, fs),
+                          float8_e5m2_to_float64(b, fs), d, 0, fs);
+}
+
+/* Octet-widening mixed E4M3 × E5M2 → FP64 */
+static uint64_t fo8wmacc8_e4m3xe5m2(uint8_t a, uint8_t b, uint64_t d,
+                                     float_status *fs)
+{
+    return float64_muladd(float8_e4m3_to_float64(a, fs),
+                          float8_e5m2_to_float64(b, fs), d, 0, fs);
+}
+
+/* Octet-widening mixed E5M2 × E4M3 → FP64 */
+static uint64_t fo8wmacc8_e5m2xe4m3(uint8_t a, uint8_t b, uint64_t d,
+                                     float_status *fs)
+{
+    return float64_muladd(float8_e5m2_to_float64(a, fs),
+                          float8_e4m3_to_float64(b, fs), d, 0, fs);
+}
+
 #define ZVVMM_JIT_OP_BUDGET 400
 
 /*
@@ -956,6 +1458,11 @@ enum {
 
     /* vfqwmmacc widening=4, FP4 nibble inputs (E2M1 only; E3M0 reserved) */
     ZVVMM_FE_Q4_E2M1, ZVVMM_FE_Q4_E2M1_BF16,
+
+    /* vf8wmmacc octet-widening (W=8) */
+    ZVVMM_FE_O8_E2M1,                          /* E2M1→FP32, 4-bit path */
+    ZVVMM_FE_O8_E4M3, ZVVMM_FE_O8_E5M2,       /* OFP8→FP64 */
+    ZVVMM_FE_O8_E4M3XE5M2, ZVVMM_FE_O8_E5M2XE4M3, /* mixed→FP64 */
 
     ZVVMM_FE_COUNT
 };
@@ -1020,6 +1527,13 @@ uint64_t HELPER(zvvmm_fmacc_elem)(CPURISCVState *env,
     /* vfqwmmacc widening=4, FP4 nibble (E2M1 only; E3M0 reserved) */
     case ZVVMM_FE_Q4_E2M1:           return fqwmacc4_e2m1(a, b, d, fs);
     case ZVVMM_FE_Q4_E2M1_BF16:      return fqwmacc4_e2m1_bf16(a, b, d, fs);
+
+    /* vf8wmmacc octet-widening (W=8) */
+    case ZVVMM_FE_O8_E2M1:           return fo8wmacc4_e2m1(a, b, d, fs);
+    case ZVVMM_FE_O8_E4M3:           return fo8wmacc8_e4m3(a, b, d, fs);
+    case ZVVMM_FE_O8_E5M2:           return fo8wmacc8_e5m2(a, b, d, fs);
+    case ZVVMM_FE_O8_E4M3XE5M2:      return fo8wmacc8_e4m3xe5m2(a, b, d, fs);
+    case ZVVMM_FE_O8_E5M2XE4M3:      return fo8wmacc8_e5m2xe4m3(a, b, d, fs);
 
     default: g_assert_not_reached();
     }
@@ -1136,6 +1650,204 @@ RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_f16_e2m1, uint16_t,
 RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e2m1, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fqwmacc4_e2m1_bf16)
+
+/* Octet-widening (W=8) FP4 E2M1 → FP32 */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vf8wmmacc_vv_f32_e2m1, uint32_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
+        fo8wmacc4_e2m1)
+
+/* Octet-widening (W=8) FP8 → FP64 */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vf8wmmacc_vv_f64_e4m3, O8WOP_UUU_D,
+        fo8wmacc8_e4m3)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vf8wmmacc_vv_f64_e5m2, O8WOP_UUU_D,
+        fo8wmacc8_e5m2)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vf8wmmacc_vv_f64_e4m3_e5m2, O8WOP_UUU_D,
+        fo8wmacc8_e4m3xe5m2)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vf8wmmacc_vv_f64_e5m2_e4m3, O8WOP_UUU_D,
+        fo8wmacc8_e5m2xe4m3)
+
+/* ── Microscaling (MX) variants: vm=0, scale from v0 ────────────────────── */
+
+/* vfmmacc MX same-width */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e4m3_mx, uint8_t, uint8_t, uint8_t,
+        uint8_t, uint8_t, fmacc8_e4m3, MX_SCALE_E4M3, float8_e4m3_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e5m2_mx, uint8_t, uint8_t, uint8_t,
+        uint8_t, uint8_t, fmacc8_e5m2, MX_SCALE_E5M2, float8_e5m2_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e5m2_from_e4m3_mx, uint8_t,
+        uint8_t, uint8_t, uint8_t, uint8_t,
+        fmacc8_e4m3_to_e5m2, MX_SCALE_E5M2, float8_e5m2_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e4m3_from_e5m2_mx, uint8_t,
+        uint8_t, uint8_t, uint8_t, uint8_t,
+        fmacc8_e5m2_to_e4m3, MX_SCALE_E4M3, float8_e4m3_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e4m3_e4m3_e5m2_mx, uint8_t,
+        uint8_t, uint8_t, uint8_t, uint8_t,
+        fmacc8_e4m3xe5m2, MX_SCALE_E4M3, float8_e4m3_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e5m2_e4m3_e5m2_mx, uint8_t,
+        uint8_t, uint8_t, uint8_t, uint8_t,
+        fmacc8_e4m3xe5m2_to_e5m2, MX_SCALE_E5M2, float8_e5m2_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e4m3_e5m2_e4m3_mx, uint8_t,
+        uint8_t, uint8_t, uint8_t, uint8_t,
+        fmacc8_e5m2xe4m3, MX_SCALE_E4M3, float8_e4m3_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_e5m2_e5m2_e4m3_mx, uint8_t,
+        uint8_t, uint8_t, uint8_t, uint8_t,
+        fmacc8_e5m2xe4m3_to_e5m2, MX_SCALE_E5M2, float8_e5m2_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_f16_mx, uint16_t, uint16_t,
+        uint16_t, uint16_t, uint16_t, fmacc16, MX_SCALE_F16, float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_bf16_mx, uint16_t, uint16_t,
+        uint16_t, uint16_t, uint16_t, fmacc16_bfloat16, MX_SCALE_BF16,
+        bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_f16_f16_bf16_mx, uint16_t,
+        uint16_t, uint16_t, uint16_t, uint16_t,
+        fmacc16_f16xbf16, MX_SCALE_F16, float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_bf16_f16_bf16_mx, uint16_t,
+        uint16_t, uint16_t, uint16_t, uint16_t,
+        fmacc16_f16xbf16_to_bf16, MX_SCALE_BF16, bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_f16_bf16_f16_mx, uint16_t,
+        uint16_t, uint16_t, uint16_t, uint16_t,
+        fmacc16_bf16xf16, MX_SCALE_F16, float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_bf16_bf16_f16_mx, uint16_t,
+        uint16_t, uint16_t, uint16_t, uint16_t,
+        fmacc16_bf16xf16_to_bf16, MX_SCALE_BF16, bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_f32_mx, uint32_t, uint32_t,
+        uint32_t, uint32_t, uint32_t, fmacc32, MX_SCALE_F32, float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfmmacc_vv_f64_mx, uint64_t, uint64_t,
+        uint64_t, uint64_t, uint64_t, fmacc64, MX_SCALE_F64, float64_muladd)
+
+/* vfwmmacc MX widening (byte-aligned inputs) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f16_e4m3_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e4m3, MX_SCALE_F16,
+        float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_bf16_e4m3_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e4m3_bf16, MX_SCALE_BF16,
+        bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f16_e5m2_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e5m2, MX_SCALE_F16,
+        float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_bf16_e5m2_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e5m2_bf16, MX_SCALE_BF16,
+        bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f16_e4m3_e5m2_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e4m3xe5m2, MX_SCALE_F16,
+        float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_bf16_e4m3_e5m2_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e4m3xe5m2_bf16,
+        MX_SCALE_BF16, bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f16_e5m2_e4m3_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e5m2xe4m3, MX_SCALE_F16,
+        float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_bf16_e5m2_e4m3_mx, uint16_t,
+        uint8_t, uint8_t, uint8_t, uint8_t, fwmacc8_e5m2xe4m3_bf16,
+        MX_SCALE_BF16, bfloat16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f32_f16_mx, uint32_t,
+        uint16_t, uint16_t, uint16_t, uint16_t, fwmacc16, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f32_bf16_mx, uint32_t,
+        uint16_t, uint16_t, uint16_t, uint16_t, fwmacc16_bfloat16, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f32_f16_bf16_mx, uint32_t,
+        uint16_t, uint16_t, uint16_t, uint16_t, fwmacc16_f16xbf16, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f32_bf16_f16_mx, uint32_t,
+        uint16_t, uint16_t, uint16_t, uint16_t, fwmacc16_bf16xf16, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfwmmacc_vv_f64_f32_mx, uint64_t,
+        uint32_t, uint32_t, uint32_t, uint32_t, fwmacc32, MX_SCALE_F64,
+        float64_muladd)
+
+/* vfwmmacc MX 4-bit inputs (E2M1 only) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfwmmacc_vv_e4m3_e2m1_mx, uint8_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
+        fwmacc4_e2m1, MX_SCALE_E4M3, float8_e4m3_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfwmmacc_vv_e5m2_e2m1_mx, uint8_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
+        fwmacc4_e2m1_e5m2, MX_SCALE_E5M2, float8_e5m2_muladd)
+
+/* vfqwmmacc MX quad-widening (byte-aligned inputs) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e4m3_mx, uint32_t,
+        uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e4m3, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e5m2_mx, uint32_t,
+        uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e5m2, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e4m3_e5m2_mx, uint32_t,
+        uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e4m3xe5m2, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e5m2_e4m3_mx, uint32_t,
+        uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e5m2xe4m3, MX_SCALE_F32,
+        float32_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_f16_mx, uint64_t,
+        uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16, MX_SCALE_F64,
+        float64_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_bf16_mx, uint64_t,
+        uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16bf, MX_SCALE_F64,
+        float64_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_f16_bf16_mx, uint64_t,
+        uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16_f16xbf16, MX_SCALE_F64,
+        float64_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_bf16_f16_mx, uint64_t,
+        uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16_bf16xf16, MX_SCALE_F64,
+        float64_muladd)
+
+/* vfqwmmacc MX 4-bit inputs (E2M1 only) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfqwmmacc_vv_f16_e2m1_mx, uint16_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
+        fqwmacc4_e2m1, MX_SCALE_F16, float16_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfqwmmacc_vv_bf16_e2m1_mx, uint16_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
+        fqwmacc4_e2m1_bf16, MX_SCALE_BF16, bfloat16_muladd)
+
+/* vf8wmmacc MX: E2M1+scale→FP32 (SEW=32, W=8, vm=0) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vf8wmmacc_vv_f32_e2m1_mx, uint32_t,
+        uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
+        fo8wmacc4_e2m1, MX_SCALE_F32, float32_muladd)
+
+/* vf8wmmacc MX: OFP8+scale→FP64 (SEW=64, W=8, vm=0) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vf8wmmacc_vv_f64_e4m3_mx, uint64_t,
+        uint8_t, uint8_t, uint64_t, uint64_t, fo8wmacc8_e4m3, MX_SCALE_F64,
+        float64_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vf8wmmacc_vv_f64_e5m2_mx, uint64_t,
+        uint8_t, uint8_t, uint64_t, uint64_t, fo8wmacc8_e5m2, MX_SCALE_F64,
+        float64_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vf8wmmacc_vv_f64_e4m3_e5m2_mx, uint64_t,
+        uint8_t, uint8_t, uint64_t, uint64_t, fo8wmacc8_e4m3xe5m2, MX_SCALE_F64,
+        float64_muladd)
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vf8wmmacc_vv_f64_e5m2_e4m3_mx, uint64_t,
+        uint8_t, uint8_t, uint64_t, uint64_t, fo8wmacc8_e5m2xe4m3, MX_SCALE_F64,
+        float64_muladd)
+
+/* vfwimmacc: signed integer (byte-aligned) inputs → FP accumulator, E8M0 MX */
+/* I8 → F16/BF16 (sew=1, widening=2) */
+GEN_ZVVMM_VFIMMACC_VV(vfwimmacc_vv_f16_ss,  uint16_t, int8_t,  int8_t,  int64_t,
+    MXINT_IP_F32_S, MX_SCALE_F16,  float16_muladd)
+GEN_ZVVMM_VFIMMACC_VV(vfwimmacc_vv_bf16_ss, uint16_t, int8_t,  int8_t,  int64_t,
+    MXINT_IP_F32_S, MX_SCALE_BF16, bfloat16_muladd)
+/* I16 → F32 (sew=2, widening=2) */
+GEN_ZVVMM_VFIMMACC_VV(vfwimmacc_vv_f32_ss,  uint32_t, int16_t, int16_t, int64_t,
+    MXINT_IP_F32_S, MX_SCALE_F32,  float32_muladd)
+
+/* vfqwimmacc: signed integer inputs → FP accumulator, E8M0 MX */
+/* I4 nibble → F16/BF16 (sew=1, widening=4) */
+GEN_ZVVMM_VFIMMACC_VV_4BIT(vfqwimmacc_vv_f16_ss,  uint16_t, int32_t,
+    tile_extract_int4, tile_extract_int4,
+    MXINT_IP_F32_S, MX_SCALE_F16,  float16_muladd)
+GEN_ZVVMM_VFIMMACC_VV_4BIT(vfqwimmacc_vv_bf16_ss, uint16_t, int32_t,
+    tile_extract_int4, tile_extract_int4,
+    MXINT_IP_F32_S, MX_SCALE_BF16, bfloat16_muladd)
+/* I8 → F32 (sew=2, widening=4) */
+GEN_ZVVMM_VFIMMACC_VV(vfqwimmacc_vv_f32_ss,  uint32_t, int8_t,  int8_t,  int64_t,
+    MXINT_IP_F32_S, MX_SCALE_F32,  float32_muladd)
+/* I16 → F64 (sew=3, widening=4) */
+GEN_ZVVMM_VFIMMACC_VV(vfqwimmacc_vv_f64_ss,  uint64_t, int16_t, int16_t, int64_t,
+    MXINT_IP_F32_S, MX_SCALE_F64,  float64_muladd)
+
+/* vf8wimmacc: signed integer inputs → FP accumulator, E8M0 MX (W=8) */
+/* I4 nibble → F32 (sew=2, widening=8) */
+GEN_ZVVMM_VFIMMACC_VV_4BIT(vf8wimmacc_vv_f32_ss, uint32_t, int32_t,
+    tile_extract_int4, tile_extract_int4,
+    MXINT_IP_F32_S, MX_SCALE_F32, float32_muladd)
+/* I8 → F64 (sew=3, widening=8) */
+GEN_ZVVMM_VFIMMACC_VV(vf8wimmacc_vv_f64_ss, uint64_t, int8_t, int8_t, int64_t,
+    MXINT_IP_F32_S, MX_SCALE_F64, float64_muladd)
 
 typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
@@ -1285,6 +1997,7 @@ static bool zvvmm_int_macc_jit(DisasContext *s, arg_rmrr *a,
  */
 static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
                              gen_helper_vmmacc * const fns[2][2][4],
+                             gen_helper_vmmacc * const mxint_fns[2][4],
                              const uint32_t ext_offsets[4],
                              int widening)
 {
@@ -1297,6 +2010,29 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&
         require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
+
+        if (a->vm == 0) {
+            /* MXINT path: signed integer inputs, FP accumulator, E8M0 microscaled.
+             * OCP MX defines MXINT as signed-only; altfmt_a/altfmt_b must be 0.
+             * FP accumulator needs the dynamic rounding mode. */
+            gen_set_rm(s, RISCV_FRM_DYN);
+            if (!mxint_fns || !s->cfg_ptr->ext_zvvfmmmx) {
+                return false;
+            }
+            if (s->altfmt_a || s->altfmt_b) {
+                return false;
+            }
+            if (s->bs && widening * (1 << s->lmul) > (1u << s->sew)) {
+                return false;
+            }
+            gen_helper_vmmacc *mxint_fn = mxint_fns[s->altfmt][s->sew];
+            if (mxint_fn) {
+                return opivv_trans(a->rd, a->rs1, a->rs2, 0, mxint_fn, s);
+            }
+            return false;
+        }
+
+        /* vm=1: integer MACC */
 
         /* Try JIT path for integer MACC */
         if (zvvmm_int_macc_jit(s, a, widening,
@@ -1323,6 +2059,7 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
  */
 static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
                               gen_helper_vmmacc * const fns[2][2][2][4],
+                              gen_helper_vmmacc * const mx_fns[2][2][2][4],
                               const int elem_ops[2][2][2][4],
                               const uint32_t ext_offsets[2][2][4],
                               int widening)
@@ -1340,6 +2077,28 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
         require_align(a->rd, mul_c_log2) &&
         require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
 
+        /* All FP MACC paths use the dynamic rounding mode from frm */
+        gen_set_rm(s, RISCV_FRM_DYN);
+
+        if (a->vm == 0) {
+            /* Microscaling (MX) path: vm=0 with E8M0 scale from v0 */
+            if (!s->cfg_ptr->ext_zvvfmmmx) {
+                return false;
+            }
+            /* BS=16 legality: widening × LMUL ≤ SEW */
+            if (s->bs && widening * (1 << s->lmul) > (1u << s->sew)) {
+                return false;
+            }
+            gen_helper_vmmacc *mx_fn =
+                mx_fns[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
+            if (mx_fn) {
+                return opivv_trans(a->rd, a->rs1, a->rs2, 0, mx_fn, s);
+            }
+            return false;
+        }
+
+        /* vm=1: unmasked non-MX path */
+
         /* Try JIT path for FP MACC */
         int elem_op = elem_ops[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
         if (elem_op >= 0 &&
@@ -1350,7 +2109,7 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
         /* Fall back to C helper */
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
         if (fn) {
-            return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
+            return opivv_trans(a->rd, a->rs1, a->rs2, 1, fn, s);
         }
     }
 
@@ -1391,7 +2150,8 @@ static bool trans_vmmacc_vv(DisasContext *s, arg_rmrr *a)
         CPU_CFG_OFFSET(ext_zvvmmb), CPU_CFG_OFFSET(ext_zvvmmh),
         CPU_CFG_OFFSET(ext_zvvmmw), CPU_CFG_OFFSET(ext_zvvmmd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets, 1);
+    /* vm=0 is reserved for same-width integer MACC */
+    return zvvmm_macc_trans(s, a, fns, NULL, ext_offsets, 1);
 }
 
 static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1428,7 +2188,15 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
         CPU_CFG_OFFSET(ext_zvvmmi4b), CPU_CFG_OFFSET(ext_zvvmmbh),
         CPU_CFG_OFFSET(ext_zvvmmhw),  CPU_CFG_OFFSET(ext_zvvmmwd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets, 2);
+    /* vm=0: vfwimmacc — signed integer inputs, FP accumulator, E8M0 microscaled */
+    static gen_helper_vmmacc * const mxint_fns[2][4] = {
+        /* altfmt = 0 (F16/F32) */
+        { NULL, gen_helper_vfwimmacc_vv_f16_ss,
+          gen_helper_vfwimmacc_vv_f32_ss, NULL },
+        /* altfmt = 1 (BF16) */
+        { NULL, gen_helper_vfwimmacc_vv_bf16_ss, NULL, NULL }
+    };
+    return zvvmm_macc_trans(s, a, fns, mxint_fns, ext_offsets, 2);
 }
 
 static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1465,7 +2233,58 @@ static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
         0,                            CPU_CFG_OFFSET(ext_zvvmmi4h),
         CPU_CFG_OFFSET(ext_zvvmmbw),  CPU_CFG_OFFSET(ext_zvvmmhd)
     };
-    return zvvmm_macc_trans(s, a, fns, ext_offsets, 4);
+    /* vm=0: vfqwimmacc — signed integer inputs, FP accumulator, E8M0 microscaled */
+    static gen_helper_vmmacc * const mxint_fns[2][4] = {
+        /* altfmt = 0 (F16/F32/F64) */
+        { NULL, gen_helper_vfqwimmacc_vv_f16_ss,
+          gen_helper_vfqwimmacc_vv_f32_ss,
+          gen_helper_vfqwimmacc_vv_f64_ss },
+        /* altfmt = 1 (BF16) */
+        { NULL, gen_helper_vfqwimmacc_vv_bf16_ss, NULL, NULL }
+    };
+    return zvvmm_macc_trans(s, a, fns, mxint_fns, ext_offsets, 4);
+}
+
+static bool trans_v8wmmacc_vv(DisasContext *s, arg_rmrr *a)
+{
+    static gen_helper_vmmacc * const fns[2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0: signed x signed */
+            { NULL, NULL,
+              gen_helper_v8wmmacc_vv_w,
+              gen_helper_v8wmmacc_vv_d },
+            /* altfmt_b = 1: signed x unsigned */
+            { NULL, NULL,
+              gen_helper_v8wmmacc_vv_w_su,
+              gen_helper_v8wmmacc_vv_d_su }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0: unsigned x signed */
+            { NULL, NULL,
+              gen_helper_v8wmmacc_vv_w_us,
+              gen_helper_v8wmmacc_vv_d_us },
+            /* altfmt_b = 1: unsigned x unsigned */
+            { NULL, NULL,
+              gen_helper_v8wmmacc_vv_w_u,
+              gen_helper_v8wmmacc_vv_d_u }
+        }
+    };
+    static const uint32_t ext_offsets[4] = {
+        0, 0,
+        CPU_CFG_OFFSET(ext_zvvmmi4w), CPU_CFG_OFFSET(ext_zvvmmbd)
+    };
+    /* vm=0: vf8wimmacc — signed integer inputs, FP accumulator, E8M0 MX */
+    static gen_helper_vmmacc * const mxint_fns[2][4] = {
+        /* altfmt = 0 (FP32/FP64) */
+        { NULL, NULL,
+          gen_helper_vf8wimmacc_vv_f32_ss,
+          gen_helper_vf8wimmacc_vv_f64_ss },
+        /* altfmt = 1 */
+        { NULL, NULL, NULL, NULL }
+    };
+    return zvvmm_macc_trans(s, a, fns, mxint_fns, ext_offsets, 8);
 }
 
 static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1545,7 +2364,41 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
             }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, elem_ops, ext_offsets, 1);
+    static gen_helper_vmmacc * const mx_fns[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { gen_helper_vfmmacc_vv_e4m3_mx, gen_helper_vfmmacc_vv_f16_mx,
+                  gen_helper_vfmmacc_vv_f32_mx,  gen_helper_vfmmacc_vv_f64_mx },
+                { gen_helper_vfmmacc_vv_e5m2_from_e4m3_mx, NULL, NULL, NULL }
+            },
+            /* altfmt_b = 1 */
+            {
+                { gen_helper_vfmmacc_vv_e4m3_e4m3_e5m2_mx,
+                  gen_helper_vfmmacc_vv_f16_f16_bf16_mx, NULL, NULL },
+                { gen_helper_vfmmacc_vv_e5m2_e4m3_e5m2_mx,
+                  gen_helper_vfmmacc_vv_bf16_f16_bf16_mx, NULL, NULL }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { gen_helper_vfmmacc_vv_e4m3_e5m2_e4m3_mx,
+                  gen_helper_vfmmacc_vv_f16_bf16_f16_mx, NULL, NULL },
+                { gen_helper_vfmmacc_vv_e5m2_e5m2_e4m3_mx,
+                  gen_helper_vfmmacc_vv_bf16_bf16_f16_mx, NULL, NULL }
+            },
+            /* altfmt_b = 1 */
+            {
+                { gen_helper_vfmmacc_vv_e4m3_from_e5m2_mx, NULL, NULL, NULL },
+                { gen_helper_vfmmacc_vv_e5m2_mx, gen_helper_vfmmacc_vv_bf16_mx,
+                  NULL, NULL }
+            }
+        }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, mx_fns, elem_ops, ext_offsets, 1);
 }
 
 static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1651,7 +2504,52 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
             }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, elem_ops, ext_offsets, 2);
+    static gen_helper_vmmacc * const mx_fns[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { gen_helper_vfwmmacc_vv_e4m3_e2m1_mx,
+                  gen_helper_vfwmmacc_vv_f16_e4m3_mx,
+                  gen_helper_vfwmmacc_vv_f32_f16_mx,
+                  gen_helper_vfwmmacc_vv_f64_f32_mx },
+                { gen_helper_vfwmmacc_vv_e5m2_e2m1_mx,
+                  gen_helper_vfwmmacc_vv_bf16_e4m3_mx,
+                  NULL, NULL }
+            },
+            /* altfmt_b = 1 (E3M0 B reserved) */
+            {
+                { NULL,
+                  gen_helper_vfwmmacc_vv_f16_e4m3_e5m2_mx,
+                  gen_helper_vfwmmacc_vv_f32_f16_bf16_mx, NULL },
+                { NULL,
+                  gen_helper_vfwmmacc_vv_bf16_e4m3_e5m2_mx,
+                  NULL, NULL }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 (E3M0 A reserved) */
+            {
+                { NULL,
+                  gen_helper_vfwmmacc_vv_f16_e5m2_e4m3_mx,
+                  gen_helper_vfwmmacc_vv_f32_bf16_f16_mx, NULL },
+                { NULL,
+                  gen_helper_vfwmmacc_vv_bf16_e5m2_e4m3_mx,
+                  NULL, NULL }
+            },
+            /* altfmt_b = 1 (E3M0 reserved) */
+            {
+                { NULL,
+                  gen_helper_vfwmmacc_vv_f16_e5m2_mx,
+                  gen_helper_vfwmmacc_vv_f32_bf16_mx, NULL },
+                { NULL,
+                  gen_helper_vfwmmacc_vv_bf16_e5m2_mx,
+                  NULL, NULL }
+            }
+        }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, mx_fns, elem_ops, ext_offsets, 2);
 }
 
 static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
@@ -1742,5 +2640,148 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
             }
         }
     };
-    return zvvmm_fmacc_trans(s, a, fns, elem_ops, ext_offsets, 4);
+    static gen_helper_vmmacc * const mx_fns[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { NULL, gen_helper_vfqwmmacc_vv_f16_e2m1_mx,
+                  gen_helper_vfqwmmacc_vv_f32_e4m3_mx,
+                  gen_helper_vfqwmmacc_vv_f64_f16_mx },
+                { NULL, gen_helper_vfqwmmacc_vv_bf16_e2m1_mx, NULL, NULL }
+            },
+            /* altfmt_b = 1 (E3M0 B reserved) */
+            {
+                { NULL, NULL,
+                  gen_helper_vfqwmmacc_vv_f32_e4m3_e5m2_mx,
+                  gen_helper_vfqwmmacc_vv_f64_f16_bf16_mx },
+                { NULL, NULL, NULL, NULL }
+            }
+        },
+        /* altfmt_a = 1 (E3M0 A reserved) */
+        {
+            /* altfmt_b = 0 */
+            {
+                { NULL, NULL,
+                  gen_helper_vfqwmmacc_vv_f32_e5m2_e4m3_mx,
+                  gen_helper_vfqwmmacc_vv_f64_bf16_f16_mx },
+                { NULL, NULL, NULL, NULL }
+            },
+            /* altfmt_b = 1 */
+            {
+                { NULL, NULL,
+                  gen_helper_vfqwmmacc_vv_f32_e5m2_mx,
+                  gen_helper_vfqwmmacc_vv_f64_bf16_mx },
+                { NULL, NULL, NULL, NULL }
+            }
+        }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, mx_fns, elem_ops, ext_offsets, 4);
+}
+
+static bool trans_vf8wmmacc_vv(DisasContext *s, arg_rmrr *a)
+{
+    static gen_helper_vmmacc * const fns[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 (same: E2M1/E4M3) */
+            {
+                { NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f32_e2m1,
+                  gen_helper_vf8wmmacc_vv_f64_e4m3 },
+                { NULL, NULL, NULL, NULL }
+            },
+            /* altfmt_b = 1 (mixed: A=E4M3, B=E5M2 at SEW=64) */
+            {
+                { NULL, NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f64_e4m3_e5m2 },
+                { NULL, NULL, NULL, NULL }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 (mixed: A=E5M2, B=E4M3 at SEW=64) */
+            {
+                { NULL, NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f64_e5m2_e4m3 },
+                { NULL, NULL, NULL, NULL }
+            },
+            /* altfmt_b = 1 (same: E5M2 at SEW=64) */
+            {
+                { NULL, NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f64_e5m2 },
+                { NULL, NULL, NULL, NULL }
+            }
+        }
+    };
+    static gen_helper_vmmacc * const mx_fns[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f32_e2m1_mx,
+                  gen_helper_vf8wmmacc_vv_f64_e4m3_mx },
+                { NULL, NULL, NULL, NULL }
+            },
+            /* altfmt_b = 1 (mixed at SEW=64: A=E4M3, B=E5M2) */
+            {
+                { NULL, NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f64_e4m3_e5m2_mx },
+                { NULL, NULL, NULL, NULL }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 (mixed at SEW=64: A=E5M2, B=E4M3) */
+            {
+                { NULL, NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f64_e5m2_e4m3_mx },
+                { NULL, NULL, NULL, NULL }
+            },
+            /* altfmt_b = 1 (same E5M2 at SEW=64) */
+            {
+                { NULL, NULL, NULL,
+                  gen_helper_vf8wmmacc_vv_f64_e5m2_mx },
+                { NULL, NULL, NULL, NULL }
+            }
+        }
+    };
+    static const int elem_ops[2][2][2][4] = {
+        /* altfmt_a = 0 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { -1, -1, ZVVMM_FE_O8_E2M1, ZVVMM_FE_O8_E4M3 },
+                { -1, -1, -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { -1, -1, -1, ZVVMM_FE_O8_E4M3XE5M2 },
+                { -1, -1, -1, -1 }
+            }
+        },
+        /* altfmt_a = 1 */
+        {
+            /* altfmt_b = 0 */
+            {
+                { -1, -1, -1, ZVVMM_FE_O8_E5M2XE4M3 },
+                { -1, -1, -1, -1 }
+            },
+            /* altfmt_b = 1 */
+            {
+                { -1, -1, -1, ZVVMM_FE_O8_E5M2 },
+                { -1, -1, -1, -1 }
+            }
+        }
+    };
+    static const uint32_t ext_offsets[2][2][4] = {
+        { { 0, 0, CPU_CFG_OFFSET(ext_zvvfmmofp4w),
+            CPU_CFG_OFFSET(ext_zvvfmmofp8d) },
+          { 0, 0, CPU_CFG_OFFSET(ext_zvvfmmofp4w),
+            CPU_CFG_OFFSET(ext_zvvfmmofp8d) } },
+        { { 0, 0, 0, CPU_CFG_OFFSET(ext_zvvfmmofp8d) },
+          { 0, 0, 0, CPU_CFG_OFFSET(ext_zvvfmmofp8d) } }
+    };
+    return zvvmm_fmacc_trans(s, a, fns, mx_fns, elem_ops, ext_offsets, 8);
 }

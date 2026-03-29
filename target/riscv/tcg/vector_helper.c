@@ -47,11 +47,12 @@ static target_ulong vtype_reserved(CPURISCVState *env, target_ulong vtype)
                                            xlen - 1 - R_VTYPE_ALTFMT_SHIFT);
     }
 
-    /* Ignore the fields defined by Zvvm */
+    /* Ignore the fields defined by Zvvm (upper vtype bits) */
     if (riscv_cpu_cfg(env)->ext_zvvm) {
-        reserved &= ~MAKE_64BIT_MASK(xlen - 4, 3); /* LAMBDA field */
-        reserved &= ~MAKE_64BIT_MASK(R_VTYPE_ALTFMT_A_SHIFT, 1);
-        reserved &= ~MAKE_64BIT_MASK(R_VTYPE_ALTFMT_B_SHIFT, 1);
+        reserved &= ~(MAKE_64BIT_MASK(xlen - 4, 3)  /* lambda[2:0] */
+                     | MAKE_64BIT_MASK(xlen - 5, 1)  /* altfmt_A   */
+                     | MAKE_64BIT_MASK(xlen - 6, 1)  /* altfmt_B   */
+                     | MAKE_64BIT_MASK(xlen - 7, 1)  /* bs         */);
     }
 
     return reserved;
@@ -144,8 +145,8 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
         if (lambda && riscv_cpu_cfg(env)->zvvm_lambda_supported & (1 << (lambda - 1)))
             env->vlambda = lambda;
 
-        /* make sure that the Zvvm-specific bits don't make it into env->vtype */
-        s2 &= ~MAKE_64BIT_MASK(xlen - 4, 3); /* LAMBDA field */
+        /* Strip lambda from s2; altfmt_A/B/bs stay in env->vtype */
+        s2 &= ~MAKE_64BIT_MASK(xlen - 4, 3); /* lambda[2:0] */
     }
 
     env->vl = vl;

@@ -115,9 +115,11 @@ BOOL_FIELD(ext_zvvmtls)   /* tile load/store */
 /* IME integer (Zvvmm) sub-extensions */
 BOOL_FIELD(ext_zvvmmi4b)  /* Int4->Int8 */
 BOOL_FIELD(ext_zvvmmi4h)  /* Int4->Int16 */
+BOOL_FIELD(ext_zvvmmi4w)  /* Int4->Int32 (W=8) */
 BOOL_FIELD(ext_zvvmmb)    /* Int8->Int8 */
 BOOL_FIELD(ext_zvvmmbh)   /* Int8->Int16 */
 BOOL_FIELD(ext_zvvmmbw)   /* Int8->Int32 */
+BOOL_FIELD(ext_zvvmmbd)   /* Int8->Int64 (W=8) */
 BOOL_FIELD(ext_zvvmmh)    /* Int16->Int16 */
 BOOL_FIELD(ext_zvvmmhw)   /* Int16->Int32 */
 BOOL_FIELD(ext_zvvmmhd)   /* Int16->Int64 */
@@ -132,6 +134,8 @@ BOOL_FIELD(ext_zvvfmmofp8)      /* FP8->FP8 */
 BOOL_FIELD(ext_zvvfmmofp8h)     /* FP8->F16 */
 BOOL_FIELD(ext_zvvfmmofp8bf16)  /* FP8->BF16 */
 BOOL_FIELD(ext_zvvfmmofp8w)     /* FP8->F32 */
+BOOL_FIELD(ext_zvvfmmofp8d)     /* FP8->F64 (W=8) */
+BOOL_FIELD(ext_zvvfmmofp4w)     /* FP4->F32 (W=8) */
 BOOL_FIELD(ext_zvvfmmh)         /* F16->F16 */
 BOOL_FIELD(ext_zvvfmmhf)        /* F16->F32 */
 BOOL_FIELD(ext_zvvfmmhd)        /* F16->F64 */
@@ -141,6 +145,7 @@ BOOL_FIELD(ext_zvvfmmbf16d)     /* BF16->F64 */
 BOOL_FIELD(ext_zvvfmmf)         /* F32->F32 */
 BOOL_FIELD(ext_zvvfmmfd)        /* F32->F64 */
 BOOL_FIELD(ext_zvvfmmd)         /* F64->F64 */
+BOOL_FIELD(ext_zvvfmmmx)       /* E8M0-microscaled FP MACC (vm=0) */
 BOOL_FIELD(ext_smaia)
 BOOL_FIELD(ext_ssaia)
 BOOL_FIELD(ext_smctr)

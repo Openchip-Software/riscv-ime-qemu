@@ -105,6 +105,7 @@ typedef struct DisasContext {
     bool altfmt;
     bool altfmt_a;
     bool altfmt_b;
+    bool bs;           /* microscaling block size: false=BS32, true=BS16 */
     uint8_t vlambda;
     CPUState *cs;
     TCGv zero;
@@ -1342,6 +1343,7 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->altfmt = FIELD_EX64(ext_tb_flags, EXT_TB_FLAGS, ALTFMT);
     ctx->altfmt_a = FIELD_EX64(ext_tb_flags, EXT_TB_FLAGS, ALTFMT_A);
     ctx->altfmt_b = FIELD_EX64(ext_tb_flags, EXT_TB_FLAGS, ALTFMT_B);
+    ctx->bs = FIELD_EX64(ext_tb_flags, EXT_TB_FLAGS, BS);
     ctx->vlambda = FIELD_EX64(ext_tb_flags, EXT_TB_FLAGS, VLAMBDA);
     ctx->misa_mxl_max = mcc->def->misa_mxl_max;
     ctx->xl = FIELD_EX32(tb_flags, TB_FLAGS, XL);
