@@ -392,7 +392,15 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
 
             case float_expmax_e4m3:
                 if (exp > exp_max || p->frac_hi > E4M3_NORMAL_FRAC_MAX) {
-                    partsN(uncanon_e4m3_overflow)(p, s, fmt, overflow_norm);
+                    /*
+                     * No-infinity formats (E4M3): overflow always produces
+                     * NaN regardless of rounding mode.  Unlike IEEE 754
+                     * formats where RTZ/RDN on positive overflow return
+                     * max-finite (because infinity exists above it), E4M3
+                     * has no representable value above max-finite except
+                     * NaN — so overflow must produce NaN.
+                     */
+                    partsN(uncanon_e4m3_overflow)(p, s, fmt, saturate);
                     exp = p->exp;
                     flags |= (float_flag_overflow | float_flag_inexact);
                 }
