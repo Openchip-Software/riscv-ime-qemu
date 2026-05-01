@@ -433,7 +433,7 @@ static int test_vfmmacc(int sew, int lmul, int lambda, uint64_t vlenb,
     if (accumulate) {
         for (int row = 0; row < M; row++) {
             for (int col = 0; col < N; col++) {
-                int flat = col * M + row;
+                int flat = row * M + col;
                 int ival = (sew == 1) ? 0 : (row + col + 1);
                 uint64_t raw = int_to_fp_raw(ival, sew, altfmt);
                 write_elem(C_init, flat, sew, raw);
@@ -472,7 +472,7 @@ static int test_vfmmacc(int sew, int lmul, int lambda, uint64_t vlenb,
         for (int col = 0; col < N_active; col++) {
             double acc = 0.0;
             if (accumulate) {
-                int flat = col * M + row;
+                int flat = row * M + col;
                 uint64_t raw = read_elem(C_init, flat, sew);
                 acc = fp_raw_to_double(raw, sew, altfmt);
             }
@@ -494,7 +494,7 @@ static int test_vfmmacc(int sew, int lmul, int lambda, uint64_t vlenb,
                 }
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = double_to_fp_raw(acc, sew, altfmt);
             uint64_t got = read_elem(C_dst, flat, sew);
             if (got != expected) {
@@ -534,7 +534,7 @@ static int test_vfwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int a_ld = linesize_load;
     int b_ld = linesize_load;
     int c_ld = linesize_c;
@@ -611,7 +611,7 @@ static int test_vfwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
                 acc += a_val * b_val;
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = double_to_fp_raw(acc, accum_sew, altfmt);
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -651,7 +651,7 @@ static int test_vfqwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int a_ld = linesize_load;
     int b_ld = linesize_load;
     int c_ld = linesize_c;
@@ -726,7 +726,7 @@ static int test_vfqwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
                 acc += a_val * b_val;
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = double_to_fp_raw(acc, accum_sew, altfmt);
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -809,7 +809,7 @@ static int test_vfwmmacc_fp4(int lmul, int lambda, uint64_t vlenb,
     int fail = 0;
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s fp4->e8 m%d l%d: C[%d][%d] "
@@ -892,7 +892,7 @@ static int test_vfqwmmacc_fp4(int lmul, int lambda, uint64_t vlenb,
     int fail = 0;
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s fp4->e16 m%d l%d: C[%d][%d] "
@@ -934,7 +934,7 @@ static int test_vf8wmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int a_ld = linesize_load;
     int b_ld = linesize_load;
     int c_ld = linesize_c;
@@ -978,7 +978,7 @@ static int test_vf8wmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
 
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s e%d->e%d m%d l%d: C[%d][%d] "
@@ -1043,10 +1043,10 @@ static int test_vf8wmmacc_fp4(int lmul, int lambda, uint64_t vlenb,
     double ref_acc = (double)k_eff;  /* k_eff × 1.0 × 1.0 */
     uint64_t expected = double_to_fp_raw(ref_acc, accum_sew, altfmt);
 
-    int N_active = M / W;
+    int N_active = M;
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s fp4->f32 m%d l%d: C[%d][%d] "

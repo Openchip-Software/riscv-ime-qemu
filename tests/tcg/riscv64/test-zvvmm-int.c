@@ -233,7 +233,7 @@ static int test_vmmacc(int sew, int lmul, int lambda, uint64_t vlenb,
     if (accumulate) {
         for (int row = 0; row < M; row++) {
             for (int col = 0; col < N; col++) {
-                int flat = col * M + row;
+                int flat = row * M + col;
                 write_elem(C_init, flat, sew, (uint64_t)(row + col + 1));
             }
         }
@@ -272,7 +272,7 @@ static int test_vmmacc(int sew, int lmul, int lambda, uint64_t vlenb,
         for (int col = 0; col < N_active; col++) {
             int64_t acc = 0;
             if (accumulate) {
-                int flat = col * M + row;
+                int flat = row * M + col;
                 acc = read_signed(C_init, flat, sew);
             }
 
@@ -291,7 +291,7 @@ static int test_vmmacc(int sew, int lmul, int lambda, uint64_t vlenb,
                 acc += a_val * b_val;
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)acc & mask;
             uint64_t got = read_elem(C_dst, flat, sew);
             if (got != expected) {
@@ -330,7 +330,7 @@ static int test_vwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int a_ld = linesize_load;
     int b_ld = linesize_load;
     int c_ld = linesize_c;
@@ -416,7 +416,7 @@ static int test_vwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
                 acc += a_val * b_val;
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)acc & mask;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -455,7 +455,7 @@ static int test_vqwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int a_ld = linesize_load;
     int b_ld = linesize_load;
     int c_ld = linesize_c;
@@ -532,7 +532,7 @@ static int test_vqwmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
                 acc += a_val * b_val;
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)acc & mask;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -576,7 +576,7 @@ static int test_vwmmacc_int4(int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
 
     /*
      * For int4, the tile load at e8 (accum_sew=1) loads byte elements.
@@ -674,7 +674,7 @@ static int test_vwmmacc_int4(int lmul, int lambda, uint64_t vlenb,
 
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)expected_val & mask;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -710,7 +710,7 @@ static int test_vqwmmacc_int4(int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int input_sew = 1;  /* load at e8 (bytes containing packed nibbles) */
     int a_ld = linesize_load;
     int b_ld = linesize_load;
@@ -742,7 +742,7 @@ static int test_vqwmmacc_int4(int lmul, int lambda, uint64_t vlenb,
 
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)expected_val & mask;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -780,7 +780,7 @@ static int test_v8wmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int a_ld = linesize_load;
     int b_ld = linesize_load;
     int c_ld = linesize_c;
@@ -859,7 +859,7 @@ static int test_v8wmmacc(int accum_sew, int lmul, int lambda, uint64_t vlenb,
                 acc += a_val * b_val;
             }
 
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)acc & mask;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
@@ -896,7 +896,7 @@ static int test_v8wmmacc_int4(int lmul, int lambda, uint64_t vlenb,
         return 0;
     }
 
-    int N_active = M / W;
+    int N_active = M;
     int input_sew = 1;  /* load at e8 (bytes containing packed nibbles) */
     int a_ld = linesize_load;
     int b_ld = linesize_load;
@@ -928,7 +928,7 @@ static int test_v8wmmacc_int4(int lmul, int lambda, uint64_t vlenb,
 
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t expected = (uint64_t)expected_val & mask;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
