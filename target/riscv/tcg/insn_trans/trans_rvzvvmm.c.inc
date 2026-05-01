@@ -69,13 +69,14 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     const uint16_t k_eff = lambda * lmul * widening;                    \
     const uint16_t M = vlenb / (sewb * lambda);                         \
     const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    /* VL must be a multiple of K_effective */                           \
-    if (vl % k_eff)                                                     \
+    /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     /* A from vs1 (bits 19:15), B from vs2 (bits 24:20) */             \
     for (int j = 0; j < N; ++j) {                                       \
@@ -83,8 +84,8 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            /* C[i,j]: column-major, flat = j * M + i */                \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
@@ -147,38 +148,47 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     const uint16_t k_eff = lambda * lmul * widening;                    \
     const uint16_t M = vlenb / (sewb * lambda);                         \
     const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
-    /* R = λ × SEW_bits / 16 (row stride in v0) */                     \
+    /* R = λ × SEW_bits / pw, pw=16 bits for E8M0 paired scales */     \
     const uint16_t R = lambda * SEW_bits / 16;                          \
     const uint16_t block_size = bs ? 16 : 32;                           \
     const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    if (vl % k_eff)                                                     \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     for (int j = 0; j < N; ++j) {                                       \
         for (int i = 0; i < M; ++i) {                                   \
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int s = 0; s < S; ++s) {                               \
-                /* Load scale pair from v0[i * R + j * S + s] */       \
-                uint32_t sf = (uint32_t)i * R + j * S + s;             \
-                uint32_t s_reg = sf / (vlenb / 2);                     \
-                uint32_t s_elem = sf % (vlenb / 2);                    \
-                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
-                               [H2(s_elem)];                            \
+                /* Spec separate-pair MX scales:                       \
+                 *   pair_A = v0[i*R + s], sA = pair_A[7:0]            \
+                 *   pair_B = v0[j*R + s], sB = pair_B[15:8] */         \
+                uint32_t sf_a  = (uint32_t)i * R + s;                  \
+                uint32_t a_reg = sf_a / (vlenb / 2);                   \
+                uint32_t a_off = sf_a % (vlenb / 2);                   \
+                uint16_t pa    = ((uint16_t *)(v0 + a_reg * vlenb))    \
+                                  [H2(a_off)];                          \
+                uint32_t sf_b  = (uint32_t)j * R + s;                  \
+                uint32_t b_reg = sf_b / (vlenb / 2);                   \
+                uint32_t b_off = sf_b % (vlenb / 2);                   \
+                uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
+                                  [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(sp & 0xFF),                         \
-                    e8m0_to_float32(sp >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF),                         \
+                    e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Block inner product */                               \
@@ -238,33 +248,43 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     const uint16_t R = lambda * SEW_bits / 16;                          \
     const uint16_t block_size = bs ? 16 : 32;                           \
     const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    if (vl % k_eff)                                                     \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     for (int j = 0; j < N; ++j) {                                       \
         for (int i = 0; i < M; ++i) {                                   \
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int blk = 0; blk < S; ++blk) {                        \
-                uint32_t sf = (uint32_t)i * R + j * S + blk;           \
-                uint32_t s_reg = sf / (vlenb / 2);                     \
-                uint32_t s_elem = sf % (vlenb / 2);                    \
-                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
-                               [H2(s_elem)];                            \
+                /* Spec separate-pair MX scales:                       \
+                 *   pair_A = v0[i*R + blk], sA = pair_A[7:0]          \
+                 *   pair_B = v0[j*R + blk], sB = pair_B[15:8] */       \
+                uint32_t sf_a  = (uint32_t)i * R + blk;                \
+                uint32_t a_reg = sf_a / (vlenb / 2);                   \
+                uint32_t a_off = sf_a % (vlenb / 2);                   \
+                uint16_t pa    = ((uint16_t *)(v0 + a_reg * vlenb))    \
+                                  [H2(a_off)];                          \
+                uint32_t sf_b  = (uint32_t)j * R + blk;                \
+                uint32_t b_reg = sf_b / (vlenb / 2);                   \
+                uint32_t b_off = sf_b % (vlenb / 2);                   \
+                uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
+                                  [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(sp & 0xFF),                         \
-                    e8m0_to_float32(sp >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF),                         \
+                    e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 TD ip = (TD)0;                                          \
@@ -345,33 +365,43 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     const uint16_t R = lambda * SEW_bits / 16;                          \
     const uint16_t block_size = bs ? 16 : 32;                           \
     const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    if (vl % k_eff)                                                     \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     for (int j = 0; j < N; ++j) {                                       \
         for (int i = 0; i < M; ++i) {                                   \
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int blk = 0; blk < S; ++blk) {                        \
-                uint32_t sf = (uint32_t)i * R + j * S + blk;           \
-                uint32_t s_reg = sf / (vlenb / 2);                     \
-                uint32_t s_elem = sf % (vlenb / 2);                    \
-                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
-                               [H2(s_elem)];                            \
+                /* Spec separate-pair MX scales:                       \
+                 *   pair_A = v0[i*R + blk], sA = pair_A[7:0]          \
+                 *   pair_B = v0[j*R + blk], sB = pair_B[15:8] */       \
+                uint32_t sf_a  = (uint32_t)i * R + blk;                \
+                uint32_t a_reg = sf_a / (vlenb / 2);                   \
+                uint32_t a_off = sf_a % (vlenb / 2);                   \
+                uint16_t pa    = ((uint16_t *)(v0 + a_reg * vlenb))    \
+                                  [H2(a_off)];                          \
+                uint32_t sf_b  = (uint32_t)j * R + blk;                \
+                uint32_t b_reg = sf_b / (vlenb / 2);                   \
+                uint32_t b_off = sf_b % (vlenb / 2);                   \
+                uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
+                                  [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(sp & 0xFF),                         \
-                    e8m0_to_float32(sp >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF),                         \
+                    e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Block integer inner product */                       \
@@ -432,33 +462,43 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     const uint16_t R = lambda * SEW_bits / 16;                          \
     const uint16_t block_size = bs ? 16 : 32;                           \
     const uint16_t S = (k_eff + block_size - 1) / block_size;          \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    if (vl % k_eff)                                                     \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     for (int j = 0; j < N; ++j) {                                       \
         for (int i = 0; i < M; ++i) {                                   \
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int blk = 0; blk < S; ++blk) {                        \
-                uint32_t sf = (uint32_t)i * R + j * S + blk;           \
-                uint32_t s_reg = sf / (vlenb / 2);                     \
-                uint32_t s_elem = sf % (vlenb / 2);                    \
-                uint16_t sp = ((uint16_t *)(v0 + s_reg * vlenb))       \
-                               [H2(s_elem)];                            \
+                /* Spec separate-pair MX scales:                       \
+                 *   pair_A = v0[i*R + blk], sA = pair_A[7:0]          \
+                 *   pair_B = v0[j*R + blk], sB = pair_B[15:8] */       \
+                uint32_t sf_a  = (uint32_t)i * R + blk;                \
+                uint32_t a_reg = sf_a / (vlenb / 2);                   \
+                uint32_t a_off = sf_a % (vlenb / 2);                   \
+                uint16_t pa    = ((uint16_t *)(v0 + a_reg * vlenb))    \
+                                  [H2(a_off)];                          \
+                uint32_t sf_b  = (uint32_t)j * R + blk;                \
+                uint32_t b_reg = sf_b / (vlenb / 2);                   \
+                uint32_t b_off = sf_b % (vlenb / 2);                   \
+                uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
+                                  [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(sp & 0xFF),                         \
-                    e8m0_to_float32(sp >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF),                         \
+                    e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Block integer inner product from nibble inputs */    \
@@ -504,13 +544,14 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     const uint16_t k_eff = lambda * lmul * widening;                    \
     const uint16_t M = vlenb / (sewb * lambda);                         \
     const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    /* VL must be a multiple of K_effective */                           \
-    if (vl % k_eff)                                                     \
+    /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     /* A from vs1 (bits 19:15), B from vs2 (bits 24:20) */             \
     for (int j = 0; j < N; ++j) {                                       \
@@ -518,8 +559,8 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            /* C[i,j]: column-major, flat = j * M + i */                \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
@@ -607,13 +648,14 @@ static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
     const uint16_t k_eff = lambda * lmul * widening;                    \
     const uint16_t M = vlenb / (sewb * lambda);                         \
     const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    /* VL must be a multiple of K_effective */                           \
-    if (vl % k_eff)                                                     \
+    /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     /* A from vs1 (bits 19:15), B from vs2 (bits 24:20) */             \
     for (int j = 0; j < N; ++j) {                                       \
@@ -621,8 +663,8 @@ static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            /* C[i,j]: column-major, flat = j * M + i */                \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
@@ -802,13 +844,14 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
     const uint16_t k_eff = lambda * lmul * widening;                    \
     const uint16_t M = vlenb / (sewb * lambda);                         \
     const uint16_t mul_c = vlenb / (sewb * lambda * lambda);            \
+    const uint16_t vl_div = lambda * lmul;                              \
     uint32_t vl = env->vl;                                              \
                                                                         \
-    /* VL must be a multiple of K_effective */                           \
-    if (vl % k_eff)                                                     \
+    /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
+    if (vl % vl_div)                                                    \
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
                                                                         \
-    const uint16_t N = vl / k_eff;                                      \
+    const uint16_t N = vl / vl_div;                                     \
                                                                         \
     /* A from vs1 (bits 19:15), B from vs2 (bits 24:20) */             \
     for (int j = 0; j < N; ++j) {                                       \
@@ -816,8 +859,8 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
             uint8_t regoff;                                             \
             uint16_t elemoff;                                           \
                                                                         \
-            /* C[i,j]: column-major, flat = j * M + i */                \
-            tile_regoffset(j * M + i, mul_c, lambda,                   \
+            /* C[i,j]: row-major, flat = i * M + j (N_max = M) */       \
+            tile_regoffset(i * M + j, mul_c, lambda,                   \
                            &regoff, &elemoff);                          \
             TD *c_elem_ptr = &((TD *)(vd + regoff * vlenb))            \
                               [ELEM_H(elemoff, sizeof(TD))];            \
@@ -1627,6 +1670,10 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
             if (s->altfmt_a || s->altfmt_b) {
                 return false;
             }
+            /* MX legality: EEW_C × λ ≥ pw (pw=16 bits for E8M0 paired) */
+            if (((8u << s->sew) << (s->vlambda - 1)) < 16) {
+                return false;
+            }
             if (s->bs && widening * (1 << s->lmul) > (1u << s->sew)) {
                 return false;
             }
@@ -1679,6 +1726,10 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
         if (a->vm == 0) {
             /* Microscaling (MX) path: vm=0 with E8M0 scale from v0 */
             if (!s->cfg_ptr->ext_zvvfmmmx) {
+                return false;
+            }
+            /* MX legality: EEW_C × λ ≥ pw (pw=16 bits for E8M0 paired) */
+            if (((8u << s->sew) << (s->vlambda - 1)) < 16) {
                 return false;
             }
             /* BS=16 legality: widening × LMUL ≤ SEW */
