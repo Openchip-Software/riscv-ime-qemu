@@ -256,7 +256,7 @@ static int test_mx_fmmacc(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
     int a_ld = lambda * lmul;       /* = M (since lmul == mul_c) */
     int b_ld = a_ld;
     int c_ld = lambda * lmul;       /* = M */
-    int c_nelem = M * R;            /* = vlenb/2 */
+    int c_nelem = M * M;            /* full row-major C tile */
 
     int input_mu = vlenb / (input_sew * lambda);
 
@@ -313,7 +313,7 @@ static int test_mx_fmmacc(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
     set_macc_vtype(accum_sew, lmul, lambda, altfmt, altfmt_a, altfmt_b, avl);
     emit();
 
-    /* VMTS: VL = c_nelem = M * R (output tile size, not avl for widening>1). */
+    /* VMTS: VL = c_nelem = M * M (full row-major C tile). */
     set_macc_vtype(accum_sew, lmul, lambda, altfmt, altfmt_a, altfmt_b,
                    (uint64_t)c_nelem);
     DO_TILE(INSN_VMTS_V24, C_dst, (uint64_t)c_ld);
@@ -327,7 +327,7 @@ static int test_mx_fmmacc(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
         for (int col = 0; col < N_active; col++) {
             double expected_d = sc_combined * K;
             uint64_t expected = int_to_accum_raw(expected_d, accum_sew, altfmt);
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s lmul=%d lam=%d: C[%d][%d] "
@@ -380,7 +380,7 @@ static int test_mxint(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
     int a_ld = lambda * lmul;
     int b_ld = a_ld;
     int c_ld = lambda * lmul;   /* = M */
-    int c_nelem = M * R;
+    int c_nelem = M * M;            /* full row-major C tile */
 
     int input_mu = vlenb / (input_sew * lambda);
 
@@ -415,7 +415,7 @@ static int test_mxint(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
     set_macc_vtype(accum_sew, lmul, lambda, altfmt, 0, 0, avl);
     emit();
 
-    /* VMTS: VL = c_nelem = M * R (output tile size, not avl for widening>1). */
+    /* VMTS: VL = c_nelem = M * M (full row-major C tile). */
     set_macc_vtype(accum_sew, lmul, lambda, altfmt, 0, 0, (uint64_t)c_nelem);
     DO_TILE(INSN_VMTS_V24, C_dst, (uint64_t)c_ld);
 
@@ -429,7 +429,7 @@ static int test_mxint(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
             uint64_t expected = int_to_accum_raw(expected_d, accum_sew, altfmt);
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s lmul=%d lam=%d: "
@@ -510,7 +510,7 @@ static int test_mx_fmmacc_bs16(int accum_sew, int input_sew, int widening,
     int a_ld = lambda * lmul;
     int b_ld = a_ld;
     int c_ld = lambda * lmul;
-    int c_nelem = M * R;
+    int c_nelem = M * M;            /* full row-major C tile */
 
     int input_mu = vlenb / (input_sew * lambda);
 
@@ -535,15 +535,24 @@ static int test_mx_fmmacc_bs16(int accum_sew, int input_sew, int widening,
             write_elem(B_buf, idx, 2, fp16_one);
     }
 
-    /* Fill scale: S scale pairs per (i,j), at v0[i*R + j*S + s] */
+    /* Spec separate-pair MX layout: pair_A at v0[i*R+s] (low byte = scale_A),
+     * pair_B at v0[j*R+s] (high byte = scale_B).  All scales uniform here, so
+     * (scale_b<<8 | scale_a) at every (i*R+s) and (j*R+s) is layout-agnostic. */
     for (int i = 0; i < M; i++) {
-        for (int j = 0; j < R; j++) {
-            for (int s = 0; s < S; s++) {
-                int idx = i * R + j * S + s;
-                if (idx < (int)(vlenb / 2)) {
-                    scale_buf[idx] = (uint16_t)scale_b_e8m0 << 8
-                                   | (uint16_t)scale_a_e8m0;
-                }
+        for (int s = 0; s < S; s++) {
+            int idx = i * R + s;
+            if (idx < (int)(vlenb / 2)) {
+                scale_buf[idx] = (uint16_t)scale_b_e8m0 << 8
+                               | (uint16_t)scale_a_e8m0;
+            }
+        }
+    }
+    for (int j = 0; j < N_active; j++) {
+        for (int s = 0; s < S; s++) {
+            int idx = j * R + s;
+            if (idx < (int)(vlenb / 2)) {
+                scale_buf[idx] = (uint16_t)scale_b_e8m0 << 8
+                               | (uint16_t)scale_a_e8m0;
             }
         }
     }
@@ -582,7 +591,7 @@ static int test_mx_fmmacc_bs16(int accum_sew, int input_sew, int widening,
     int fail = 0;
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s e%d->e%d m%d l%d S=%d: C[%d][%d] "
@@ -637,7 +646,7 @@ static int test_mxint_bs16(int accum_sew, int input_sew, int widening,
     int a_ld = lambda * lmul;
     int b_ld = a_ld;
     int c_ld = lambda * lmul;
-    int c_nelem = M * R;
+    int c_nelem = M * M;            /* full row-major C tile */
 
     int input_mu = vlenb / (input_sew * lambda);
 
@@ -696,7 +705,7 @@ static int test_mxint_bs16(int accum_sew, int input_sew, int widening,
     int fail = 0;
     for (int row = 0; row < M; row++) {
         for (int col = 0; col < N_active; col++) {
-            int flat = col * M + row;
+            int flat = row * M + col;
             uint64_t got = read_elem(C_dst, flat, accum_sew);
             if (got != expected) {
                 printf("FAIL %s e%d->e%d m%d l%d S=%d: C[%d][%d] "
