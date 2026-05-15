@@ -6076,6 +6076,20 @@ zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
     const uint32_t esz = 1 << log2_esz;
     const uint32_t vma = vext_vma(desc);
 
+    /*
+     * rs2 = x0 selects the spec-defined default leading dimension:
+     *   - preserve_order (vmtl.v / vmts.v):   LD = λ × LMUL
+     *   - transpose      (vmttl.v / vmtts.v): LD = VLEN / (SEW × λ)
+     * In both cases LD is in element units.
+     */
+    if (leading_dim == 0) {
+        if (calc_elem_off == zvmtls_preserve_order) {
+            leading_dim = lambda * lmul;
+        } else {
+            leading_dim = vlenb / (esz * lambda);
+        }
+    }
+
     VSTART_CHECK_EARLY_EXIT(env, env->vl);
 
     for (uint32_t i = env->vstart; i < env->vl; env->vstart = ++i) {
