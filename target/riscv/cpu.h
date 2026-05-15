@@ -213,9 +213,9 @@ FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, ALTFMT, 8, 1)
 FIELD(VTYPE, RESERVED, 9, sizeof(uint64_t) * 8 - 10)
 /* Zvvm upper vtype fields (below lambda[2:0] at [XLEN-2:XLEN-4]) */
-FIELD(VTYPE, ALTFMT_A, 59, 1) /* vtype[XLEN-5] */
-FIELD(VTYPE, ALTFMT_B, 58, 1) /* vtype[XLEN-6] */
-FIELD(VTYPE, BS, 57, 1)       /* vtype[XLEN-7], microscaling block size */
+FIELD(VTYPE, BS,       59, 1) /* vtype[XLEN-5], microscaling block size */
+FIELD(VTYPE, ALTFMT_A, 58, 1) /* vtype[XLEN-6] */
+FIELD(VTYPE, ALTFMT_B, 57, 1) /* vtype[XLEN-7] */
 
 #ifndef CONFIG_USER_ONLY
 /* machine specific AIA ireg read-modify-write callback */
