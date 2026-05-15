@@ -281,7 +281,7 @@ static int test_register_layout(int sew, int lmul, int lambda,
         index_to_regoffset(i, lmul, lambda, &regoff, &elemoff);
 
         uint64_t got = read_elem(raw + regoff * vlenb, elemoff, sew);
-        uint64_t exp = (uint64_t)(i + 1);
+        uint64_t exp = read_elem(src, i, sew);  /* truncated to sew bytes */
         if (got != exp) {
             printf("FAIL layout e%d m%d l%d: index %d "
                    "regoff=%d elemoff=%d got 0x%lx exp 0x%lx\n",
@@ -294,6 +294,59 @@ static int test_register_layout(int sew, int lmul, int lambda,
 
     free(src);
     free(raw);
+    return fail;
+}
+
+/*
+ * TC-6: rs2=0 selects the spec-defined default leading dimension.
+ *
+ *   vmtl.v  / vmts.v   (preserve): LD_default = λ × LMUL = linesize
+ *   vmttl.v / vmtts.v  (transpose): LD_default = VLEN / (SEW × λ) = mu
+ *
+ * The explicit-LD round-trip is already covered by TC-1 / TC-2 with the
+ * same LD values.  Here we re-run the round-trip passing rs2=0 in place
+ * of the explicit LD and require the output to match src[] byte for byte.
+ * A failure here means the helper did not substitute the default.
+ */
+static int test_default_ld(int sew, int lmul, int lambda,
+                           uint64_t vlenb, int transpose)
+{
+    int mu       = vlenb / (sew * lambda);
+    int linesize = lambda * lmul;
+    int nelem    = mu * linesize;
+    int bufsz    = nelem * sew;
+
+    uint8_t *src = malloc(bufsz);
+    uint8_t *dst = calloc(1, bufsz);
+
+    for (int i = 0; i < nelem; i++) {
+        write_elem(src, i, sew, (uint64_t)(i + 1));
+    }
+
+    set_tile_vtype(sew, lmul, lambda);
+    if (!transpose) {
+        do_vmtl(src, 0);    /* LD=0 → λ × LMUL */
+        do_vmts(dst, 0);
+    } else {
+        do_vmttl(src, 0);   /* LD=0 → VLEN/(SEW×λ) */
+        do_vmtts(dst, 0);
+    }
+
+    int fail = 0;
+    for (int i = 0; i < nelem; i++) {
+        uint64_t got = read_elem(dst, i, sew);
+        uint64_t exp = read_elem(src, i, sew);
+        if (got != exp) {
+            printf("FAIL default_ld(%s) e%d m%d l%d: elem %d "
+                   "got 0x%lx exp 0x%lx\n",
+                   transpose ? "T" : "N", sew * 8, lmul, lambda,
+                   i, (unsigned long)got, (unsigned long)exp);
+            fail = 1;
+        }
+    }
+
+    free(src);
+    free(dst);
     return fail;
 }
 
@@ -330,6 +383,8 @@ int main(void)
                 fail |= test_cross(sew, lmul, lambda, vlenb, 0);
                 fail |= test_cross(sew, lmul, lambda, vlenb, 1);
                 fail |= test_register_layout(sew, lmul, lambda, vlenb);
+                fail |= test_default_ld(sew, lmul, lambda, vlenb, 0);
+                fail |= test_default_ld(sew, lmul, lambda, vlenb, 1);
                 configs++;
             }
         }
@@ -339,6 +394,6 @@ int main(void)
         printf("FAILED\n");
         return 1;
     }
-    printf("PASSED (%d configurations, %d tests)\n", configs, configs * 5);
+    printf("PASSED (%d configurations, %d tests)\n", configs, configs * 7);
     return 0;
 }
