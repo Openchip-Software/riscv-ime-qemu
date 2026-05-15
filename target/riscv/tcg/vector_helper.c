@@ -50,9 +50,9 @@ static target_ulong vtype_reserved(CPURISCVState *env, target_ulong vtype)
     /* Ignore the fields defined by Zvvm (upper vtype bits) */
     if (riscv_cpu_cfg(env)->ext_zvvm) {
         reserved &= ~(MAKE_64BIT_MASK(xlen - 4, 3)  /* lambda[2:0] */
-                     | MAKE_64BIT_MASK(xlen - 5, 1)  /* altfmt_A   */
-                     | MAKE_64BIT_MASK(xlen - 6, 1)  /* altfmt_B   */
-                     | MAKE_64BIT_MASK(xlen - 7, 1)  /* bs         */);
+                     | MAKE_64BIT_MASK(xlen - 5, 1)  /* bs         */
+                     | MAKE_64BIT_MASK(xlen - 6, 1)  /* altfmt_A   */
+                     | MAKE_64BIT_MASK(xlen - 7, 1)  /* altfmt_B   */);
     }
 
     return reserved;

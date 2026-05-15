@@ -87,8 +87,8 @@ static inline uint64_t set_macc_vtype(int sew_bytes, int lmul, int lambda,
     uint64_t vtype = (uint64_t)__builtin_ctz(lmul)
                    | ((uint64_t)__builtin_ctz(sew_bytes) << 3)
                    | ((uint64_t)altfmt   << 8)
-                   | ((uint64_t)altfmt_a << 59)
-                   | ((uint64_t)altfmt_b << 58)
+                   | ((uint64_t)altfmt_a << 58)
+                   | ((uint64_t)altfmt_b << 57)
                    | ((uint64_t)(__builtin_ctz(lambda) + 1) << 60);
     uint64_t vl;
     asm volatile("vsetvl %0, %1, %2" : "=r"(vl) : "r"(avl), "r"(vtype));
@@ -458,9 +458,9 @@ static inline uint64_t set_macc_vtype_bs16(int sew_bytes, int lmul, int lambda,
     uint64_t vtype = (uint64_t)__builtin_ctz(lmul)
                    | ((uint64_t)__builtin_ctz(sew_bytes) << 3)
                    | ((uint64_t)altfmt   << 8)
-                   | ((uint64_t)altfmt_a << 59)
-                   | ((uint64_t)altfmt_b << 58)
-                   | (1ULL << 57)  /* bs=1: block_size=16 */
+                   | (1ULL << 59)  /* bs=1: block_size=16 */
+                   | ((uint64_t)altfmt_a << 58)
+                   | ((uint64_t)altfmt_b << 57)
                    | ((uint64_t)(__builtin_ctz(lambda) + 1) << 60);
     uint64_t vl;
     asm volatile("vsetvl %0, %1, %2" : "=r"(vl) : "r"(avl), "r"(vtype));
