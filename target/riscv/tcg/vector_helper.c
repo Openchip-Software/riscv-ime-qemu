@@ -193,28 +193,45 @@ static void probe_pages(CPURISCVState *env, target_ulong addr, target_ulong len,
                         uintptr_t ra, MMUAccessType access_type, int mmu_index,
                         void **host, int *flags, bool nonfault)
 {
-    target_ulong pagelen = -(addr | TARGET_PAGE_MASK);
-    target_ulong curlen = MIN(pagelen, len);
+    /*
+     * probe_access[_flags] asserts that the requested size fits within the
+     * current page (-(addr | TARGET_PAGE_MASK) >= size).  Iterate page by
+     * page so that accesses larger than 2 * TARGET_PAGE_SIZE — e.g.
+     * VLEN = 16384 with LMUL = 8 unit-stride byte loads, which probe 16 KB
+     * at once — do not trip the assertion.
+     *
+     * The first iteration populates *host and *flags as before.  Later
+     * iterations OR their flags into *flags; the host pointer is only
+     * meaningful for the first page (any contiguous-host fast path in the
+     * caller must already be gated by a single-page check or by checking
+     * that *flags is zero, since consecutive guest pages need not be
+     * contiguous in the host address space).
+     */
+    bool first = true;
 
-    if (flags != NULL) {
-        *flags = probe_access_flags(env, adjust_addr(env, addr), curlen,
-                                    access_type, mmu_index, nonfault, host, ra);
-    } else {
-        probe_access(env, adjust_addr(env, addr), curlen, access_type,
-                     mmu_index, ra);
-    }
+    while (len > 0) {
+        target_ulong pagelen = -(addr | TARGET_PAGE_MASK);
+        target_ulong curlen  = MIN(pagelen, len);
 
-    if (len > curlen) {
-        addr += curlen;
-        curlen = len - curlen;
         if (flags != NULL) {
-            *flags |= probe_access_flags(env, adjust_addr(env, addr), curlen,
-                                         access_type, mmu_index, nonfault,
-                                         host, ra);
+            if (first) {
+                *flags = probe_access_flags(env, adjust_addr(env, addr),
+                                            curlen, access_type, mmu_index,
+                                            nonfault, host, ra);
+            } else {
+                void *unused_host;
+                *flags |= probe_access_flags(env, adjust_addr(env, addr),
+                                             curlen, access_type, mmu_index,
+                                             nonfault, &unused_host, ra);
+            }
         } else {
             probe_access(env, adjust_addr(env, addr), curlen, access_type,
                          mmu_index, ra);
         }
+
+        addr += curlen;
+        len  -= curlen;
+        first = false;
     }
 }
 
