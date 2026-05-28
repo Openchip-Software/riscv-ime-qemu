@@ -1233,6 +1233,19 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
 
     bool use_helper_fn = !s->vstart_eq_zero;
 
+    /*
+     * The inline path emits ~5 TCG ops per 8-byte chunk of (vlenb * nf).
+     * For large VLEN (e.g. VLEN >= 2048 with nf=4 or VLEN >= 8192 with
+     * nf=1) the resulting unrolled sequence can overflow the TB op buffer
+     * and explode TB code size with no perf benefit.  Mirror gvec's
+     * inline-vs-OOL policy (tcg/tcg-op-gvec.c MAX_UNROLL = 4 lane-sized
+     * iterations) and fall back to the helper above the same boundary,
+     * here measured at 8-byte lanes: 4 * 8 = 32 bytes.
+     */
+    if (!use_helper_fn && s->cfg_ptr->vlenb * nf > 32) {
+        use_helper_fn = true;
+    }
+
     if (!use_helper_fn) {
         uint32_t size = s->cfg_ptr->vlenb * nf;
         TCGv_i64 t8 = tcg_temp_new_i64();
