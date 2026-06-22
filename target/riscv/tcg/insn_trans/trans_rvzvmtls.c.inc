@@ -34,6 +34,25 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
     TCGv base, stride;
     TCGv_i32 desc;
 
+    /*
+     * Spec commit 078b98ad (2026-06-15) makes fractional LMUL invalid for
+     * every Zvvm instruction including tile load/store.  s->lmul is signed
+     * (negative encodes mf2/mf4/mf8); reject those before we touch the
+     * helper, which would otherwise compute `1 << s->lmul` on a negative
+     * value (undefined behaviour).
+     */
+    if (s->lmul < 0) {
+        return false;
+    }
+
+    /*
+     * Register-group alignment: vd must be aligned to LMUL.  rs1/rs2 are
+     * scalar GPR sources and do not participate in register-group sizing.
+     */
+    if (!require_align(vd, s->lmul)) {
+        return false;
+    }
+
     dest = tcg_temp_new_ptr();
     mask = tcg_temp_new_ptr();
     base = get_gpr(s, rs1, EXT_NONE);
