@@ -1971,37 +1971,39 @@ static bool trans_vfmmacc_vv(DisasContext *s, arg_rmrr *a)
           { CPU_CFG_OFFSET(ext_zvvfmmofp8), CPU_CFG_OFFSET(ext_zvvfmmbf16),
             0, 0 } }
     };
+    /*
+     * Spec commit 0e150889 (2026-06-18) removed Zvvxofp8mm / Zvvxnofp8mm
+     * (W=1 OFP8-MX -> OFP8) from the extension table.  The non-widening
+     * OFP8 -> OFP8 MX path is therefore reserved; all sew=0 (OFP8 accum)
+     * slots below must remain NULL.  The unscaled OFP8 path (vm=1) is
+     * unaffected and stays in the `fns` table above under Zvvofp8mm.
+     */
     static gen_helper_vmmacc * const mx_fns[2][2][2][4] = {
         /* altfmt_a = 0 */
         {
             /* altfmt_b = 0 */
             {
-                { gen_helper_vfmmacc_vv_e4m3_mx, gen_helper_vfmmacc_vv_f16_mx,
+                { NULL, gen_helper_vfmmacc_vv_f16_mx,
                   gen_helper_vfmmacc_vv_f32_mx,  gen_helper_vfmmacc_vv_f64_mx },
-                { gen_helper_vfmmacc_vv_e5m2_from_e4m3_mx, NULL, NULL, NULL }
+                { NULL, NULL, NULL, NULL }
             },
             /* altfmt_b = 1 */
             {
-                { gen_helper_vfmmacc_vv_e4m3_e4m3_e5m2_mx,
-                  gen_helper_vfmmacc_vv_f16_f16_bf16_mx, NULL, NULL },
-                { gen_helper_vfmmacc_vv_e5m2_e4m3_e5m2_mx,
-                  gen_helper_vfmmacc_vv_bf16_f16_bf16_mx, NULL, NULL }
+                { NULL, gen_helper_vfmmacc_vv_f16_f16_bf16_mx, NULL, NULL },
+                { NULL, gen_helper_vfmmacc_vv_bf16_f16_bf16_mx, NULL, NULL }
             }
         },
         /* altfmt_a = 1 */
         {
             /* altfmt_b = 0 */
             {
-                { gen_helper_vfmmacc_vv_e4m3_e5m2_e4m3_mx,
-                  gen_helper_vfmmacc_vv_f16_bf16_f16_mx, NULL, NULL },
-                { gen_helper_vfmmacc_vv_e5m2_e5m2_e4m3_mx,
-                  gen_helper_vfmmacc_vv_bf16_bf16_f16_mx, NULL, NULL }
+                { NULL, gen_helper_vfmmacc_vv_f16_bf16_f16_mx, NULL, NULL },
+                { NULL, gen_helper_vfmmacc_vv_bf16_bf16_f16_mx, NULL, NULL }
             },
             /* altfmt_b = 1 */
             {
-                { gen_helper_vfmmacc_vv_e4m3_from_e5m2_mx, NULL, NULL, NULL },
-                { gen_helper_vfmmacc_vv_e5m2_mx, gen_helper_vfmmacc_vv_bf16_mx,
-                  NULL, NULL }
+                { NULL, NULL, NULL, NULL },
+                { NULL, gen_helper_vfmmacc_vv_bf16_mx, NULL, NULL }
             }
         }
     };
