@@ -267,6 +267,17 @@ static void load_nibble_element(TCGv_i64 dest, TCGv_ptr base,
                     e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
+                /* Spec commit d561ad54: when the combined block scale  \
+                 * is NaN, the output element is forced to default NaN  \
+                 * and evaluation of this output element terminates.    \
+                 * Scale-decode and scale-multiply fflags already       \
+                 * accrued above; products and accumulation of this and \
+                 * later blocks must not contribute further flags. */   \
+                if (float32_is_any_nan(sc)) {                          \
+                    c_elem = scale_td;                                  \
+                    break;                                              \
+                }                                                       \
+                                                                        \
                 /* Block inner product */                               \
                 TD ip = (TD)0;                                          \
                 int k_start = s * block_size;                           \
@@ -362,6 +373,13 @@ static void load_nibble_element(TCGv_i64 dest, TCGv_ptr base,
                     e8m0_to_float32(pa & 0xFF),                         \
                     e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
+                                                                        \
+                /* Spec d561ad54: combined-scale NaN forces this output \
+                 * element to default NaN and terminates its eval. */   \
+                if (float32_is_any_nan(sc)) {                          \
+                    c_elem = scale_td;                                  \
+                    break;                                              \
+                }                                                       \
                                                                         \
                 TD ip = (TD)0;                                          \
                 int k_start = blk * block_size;                         \
@@ -480,6 +498,13 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                     e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
+                /* Spec d561ad54: combined-scale NaN forces this output \
+                 * element to default NaN and terminates its eval. */   \
+                if (float32_is_any_nan(sc)) {                          \
+                    c_elem = scale_td;                                  \
+                    break;                                              \
+                }                                                       \
+                                                                        \
                 /* Block integer inner product */                       \
                 INT_ACC ip = 0;                                         \
                 int k_start = blk * block_size;                         \
@@ -576,6 +601,13 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                     e8m0_to_float32(pa & 0xFF),                         \
                     e8m0_to_float32(pb >> 8), fs);                      \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
+                                                                        \
+                /* Spec d561ad54: combined-scale NaN forces this output \
+                 * element to default NaN and terminates its eval. */   \
+                if (float32_is_any_nan(sc)) {                          \
+                    c_elem = scale_td;                                  \
+                    break;                                              \
+                }                                                       \
                                                                         \
                 /* Block integer inner product from nibble inputs */    \
                 INT_ACC ip = 0;                                         \
