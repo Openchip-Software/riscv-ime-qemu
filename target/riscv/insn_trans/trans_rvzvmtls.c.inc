@@ -72,112 +72,43 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
 }
 
 
-/* TODO: use a common function that is passed the gen_helper_ldst_tile *fn ... */
-
-static bool trans_vmtl_v(DisasContext *s, arg_vmtl_v *a)
-{
-    REQUIRE_ZVVMTLS(s);
-
-    /* TODO: checks */
-
-    gen_helper_ldst_tile *fn;
-    static gen_helper_ldst_tile * const fns[4] = {
-        gen_helper_vmtl8_v, gen_helper_vmtl16_v,
-        gen_helper_vmtl32_v, gen_helper_vmtl64_v
-    };
-
-    fn = fns[s->sew];
-    if (fn == NULL) {
-        return false;
-    }
-
-    uint32_t data = 0;
-    data = FIELD_DP32(data, VDATA, VM, a->vm);
-    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
-    data = FIELD_DP32(data, VDATA, VTA, s->vta);
-    data = FIELD_DP32(data, VDATA, VMA, s->vma);
-    data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);
-
-    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, fn, s);
+/*
+ * vmtl.v / vmttl.v / vmts.v / vmtts.v all share the same encoding shape
+ * (arg_rmrr_lambda — rd, rs1, rs2, vm, lambda) and the same translation
+ * body: pick the SEW-indexed helper, build the descriptor, dispatch via
+ * ldst_tile_trans.  The only per-instruction variation is the helper-name
+ * prefix, so generate the four translators from one macro.
+ *
+ * Per-instruction legality checks (vstart=0, lambda-immediate trap on
+ * unsupported value, VL divisibility, ...) belong in ldst_tile_trans where
+ * they apply uniformly to all four forms; per-translator hooks are not
+ * needed today.
+ */
+#define GEN_LDST_TILE_TRANS(NAME)                                            \
+static bool trans_##NAME##_v(DisasContext *s, arg_##NAME##_v *a)             \
+{                                                                            \
+    REQUIRE_ZVVMTLS(s);                                                      \
+                                                                             \
+    static gen_helper_ldst_tile * const fns[4] = {                           \
+        gen_helper_##NAME##8_v,  gen_helper_##NAME##16_v,                    \
+        gen_helper_##NAME##32_v, gen_helper_##NAME##64_v                     \
+    };                                                                       \
+    gen_helper_ldst_tile *fn = fns[s->sew];                                  \
+    if (fn == NULL) {                                                        \
+        return false;                                                        \
+    }                                                                        \
+                                                                             \
+    uint32_t data = 0;                                                       \
+    data = FIELD_DP32(data, VDATA, VM,      a->vm);                          \
+    data = FIELD_DP32(data, VDATA, LMUL,    s->lmul);                        \
+    data = FIELD_DP32(data, VDATA, VTA,     s->vta);                         \
+    data = FIELD_DP32(data, VDATA, VMA,     s->vma);                         \
+    data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);                      \
+                                                                             \
+    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, fn, s);              \
 }
 
-static bool trans_vmttl_v(DisasContext *s, arg_vmttl_v *a)
-{
-    REQUIRE_ZVVMTLS(s);
-
-    /* TODO: checks */
-
-    gen_helper_ldst_tile *fn;
-    static gen_helper_ldst_tile * const fns[4] = {
-        gen_helper_vmttl8_v, gen_helper_vmttl16_v,
-        gen_helper_vmttl32_v, gen_helper_vmttl64_v
-    };
-
-    fn = fns[s->sew];
-    if (fn == NULL) {
-        return false;
-    }
-
-    uint32_t data = 0;
-    data = FIELD_DP32(data, VDATA, VM, a->vm);
-    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
-    data = FIELD_DP32(data, VDATA, VTA, s->vta);
-    data = FIELD_DP32(data, VDATA, VMA, s->vma);
-    data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);
-
-    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, fn, s);
-}
-
-static bool trans_vmts_v(DisasContext *s, arg_vmts_v *a)
-{
-    REQUIRE_ZVVMTLS(s);
-
-    /* TODO: checks */
-
-    gen_helper_ldst_tile *fn;
-    static gen_helper_ldst_tile * const fns[4] = {
-        gen_helper_vmts8_v,  gen_helper_vmts16_v,
-        gen_helper_vmts32_v, gen_helper_vmts64_v
-    };
-
-    fn = fns[s->sew];
-    if (fn == NULL) {
-        return false;
-    }
-
-    uint32_t data = 0;
-    data = FIELD_DP32(data, VDATA, VM, a->vm);
-    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
-    data = FIELD_DP32(data, VDATA, VTA, s->vta);
-    data = FIELD_DP32(data, VDATA, VMA, s->vma);
-    data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);
-
-    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, fn, s);
-}
-
-static bool trans_vmtts_v(DisasContext *s, arg_vmtts_v *a)
-{
-    REQUIRE_ZVVMTLS(s);
-
-    /* TODO: checks */
-
-    gen_helper_ldst_tile *fn;
-    static gen_helper_ldst_tile * const fns[4] = {
-        gen_helper_vmtts8_v,  gen_helper_vmtts16_v,
-        gen_helper_vmtts32_v, gen_helper_vmtts64_v
-    };
-
-    fn = fns[s->sew];
-    if (fn == NULL) {
-        return false;
-    }
-
-    uint32_t data = 0;
-    data = FIELD_DP32(data, VDATA, VM, a->vm);
-    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
-    data = FIELD_DP32(data, VDATA, VTA, s->vta);
-    data = FIELD_DP32(data, VDATA, VMA, s->vma);
-    data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);
-
-    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, fn, s);
-}
+GEN_LDST_TILE_TRANS(vmtl)
+GEN_LDST_TILE_TRANS(vmttl)
+GEN_LDST_TILE_TRANS(vmts)
+GEN_LDST_TILE_TRANS(vmtts)
