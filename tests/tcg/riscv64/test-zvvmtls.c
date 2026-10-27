@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <ucontext.h>
 
 /* --------------------------------------------------------------------
  * Instruction encodings
@@ -350,6 +352,51 @@ static int test_default_ld(int sew, int lmul, int lambda,
     return fail;
 }
 
+/*
+ * TC-7: with vtype.vill=1 every tile load/store must raise an
+ * illegal-instruction exception, as base-V loads/stores do.  The SIGILL
+ * handler counts the trap and skips the 4-byte instruction.
+ */
+static volatile int sigill_count;
+
+static void sigill_handler(int sig, siginfo_t *si, void *uc_)
+{
+    ucontext_t *uc = uc_;
+
+    sigill_count++;
+    uc->uc_mcontext.__gregs[REG_PC] += 4;
+}
+
+static int test_vill(void)
+{
+    static uint8_t buf[64];
+    struct sigaction sa = {
+        .sa_sigaction = sigill_handler,
+        .sa_flags = SA_SIGINFO,
+    };
+    struct sigaction old;
+    uint64_t vl;
+
+    sigaction(SIGILL, &sa, &old);
+    sigill_count = 0;
+
+    /* Writing an unsupported vtype sets vill. */
+    asm volatile("vsetvl %0, zero, %1" : "=r"(vl) : "r"(-1L));
+    do_vmtl(buf, 0);
+    do_vmttl(buf, 0);
+    do_vmts(buf, 0);
+    do_vmtts(buf, 0);
+
+    sigaction(SIGILL, &old, NULL);
+
+    if (sigill_count != 4) {
+        printf("FAIL vill: %d of 4 tile load/stores trapped\n",
+               sigill_count);
+        return 1;
+    }
+    return 0;
+}
+
 /* ====================================================================
  * Main: iterate over all valid (sew, lmul, lambda) configurations
  * ==================================================================== */
@@ -390,10 +437,13 @@ int main(void)
         }
     }
 
+    fail |= test_vill();
+
     if (fail) {
         printf("FAILED\n");
         return 1;
     }
-    printf("PASSED (%d configurations, %d tests)\n", configs, configs * 7);
+    printf("PASSED (%d configurations, %d tests)\n", configs,
+           configs * 7 + 1);
     return 0;
 }
