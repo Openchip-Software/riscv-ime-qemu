@@ -774,8 +774,8 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_d, OP_SSS_D, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_h, WOP_SSS_B, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_w, WOP_SSS_H, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_d, WOP_SSS_W, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_w, QWOP_SSS_H, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_d, QWOP_SSS_W, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_w, QWOP_SSS_H, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_d, QWOP_SSS_W, DO_MACC)
 
 /* unsigned x unsigned */
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_b_u, OP_UUU_B, DO_MACC)
@@ -785,8 +785,8 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_d_u, OP_UUU_D, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_h_u, WOP_UUU_B, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_w_u, WOP_UUU_H, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_d_u, WOP_UUU_W, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_w_u, QWOP_UUU_B, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_d_u, QWOP_UUU_H, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_w_u, QWOP_UUU_B, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_d_u, QWOP_UUU_H, DO_MACC)
 
 /* signed A x unsigned B */
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_b_su, OP_SSU_B, DO_MACC)
@@ -796,8 +796,8 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_d_su, OP_SSU_D, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_h_su, WOP_SSU_B, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_w_su, WOP_SSU_H, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_d_su, WOP_SSU_W, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_w_su, QWOP_SSU_H, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_d_su, QWOP_SSU_W, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_w_su, QWOP_SSU_H, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_d_su, QWOP_SSU_W, DO_MACC)
 
 /* unsigned A x signed B */
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_b_us, OP_SUS_B, DO_MACC)
@@ -807,29 +807,29 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, vmmacc_vv_d_us, OP_SUS_D, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_h_us, WOP_SUS_B, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_w_us, WOP_SUS_H, DO_MACC)
 RVVCALL(GEN_ZVVMM_VMMACC_VV, vwmmacc_vv_d_us, WOP_SUS_W, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_w_us, QWOP_SUS_H, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV, vqwmmacc_vv_d_us, QWOP_SUS_W, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_w_us, QWOP_SUS_H, DO_MACC)
+RVVCALL(GEN_ZVVMM_VMMACC_VV, vqmmacc_vv_d_us, QWOP_SUS_W, DO_MACC)
 
 /* Int4 variants: 4-bit integer inputs packed two per byte */
 /* signed x signed */
 RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vwmmacc_vv_b, int8_t,
         int32_t, int32_t, tile_extract_int4, tile_extract_int4, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqwmmacc_vv_h, int16_t,
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqmmacc_vv_h, int16_t,
         int32_t, int32_t, tile_extract_int4, tile_extract_int4, DO_MACC)
 /* unsigned x unsigned */
 RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vwmmacc_vv_b_u, uint8_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqwmmacc_vv_h_u, uint16_t,
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqmmacc_vv_h_u, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, DO_MACC)
 /* signed A x unsigned B */
 RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vwmmacc_vv_b_su, int8_t,
         int32_t, uint32_t, tile_extract_int4, tile_extract_uint4, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqwmmacc_vv_h_su, int16_t,
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqmmacc_vv_h_su, int16_t,
         int32_t, uint32_t, tile_extract_int4, tile_extract_uint4, DO_MACC)
 /* unsigned A x signed B */
 RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vwmmacc_vv_b_us, int8_t,
         uint32_t, int32_t, tile_extract_uint4, tile_extract_int4, DO_MACC)
-RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqwmmacc_vv_h_us, int16_t,
+RVVCALL(GEN_ZVVMM_VMMACC_VV_4BIT, vqmmacc_vv_h_us, int16_t,
         uint32_t, int32_t, tile_extract_uint4, tile_extract_int4, DO_MACC)
 
 /* Octet-widening (W=8) Int4→Int32: 4-bit inputs, 32-bit accumulator */
@@ -1318,20 +1318,20 @@ RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfwmmacc_vv_f32_f16_bf16, WOP_UUU_H,
         fwmacc16_f16xbf16);
 RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfwmmacc_vv_f32_bf16_f16, WOP_UUU_H,
         fwmacc16_bf16xf16);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f32_e4m3, QWOP_UUU_B,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f32_e4m3, QWOP_UUU_B,
         fqwmacc8_e4m3);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f32_e5m2, QWOP_UUU_B,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f32_e5m2, QWOP_UUU_B,
         fqwmacc8_e5m2);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f64_f16, QWOP_UUU_H, fqwmacc16);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f64_bf16, QWOP_UUU_H,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f64_f16, QWOP_UUU_H, fqwmacc16);
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f64_bf16, QWOP_UUU_H,
         fqwmacc16bf);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f32_e4m3_e5m2, QWOP_UUU_B,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f32_e4m3_e5m2, QWOP_UUU_B,
         fqwmacc8_e4m3xe5m2);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f32_e5m2_e4m3, QWOP_UUU_B,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f32_e5m2_e4m3, QWOP_UUU_B,
         fqwmacc8_e5m2xe4m3);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f64_f16_bf16, QWOP_UUU_H,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f64_f16_bf16, QWOP_UUU_H,
         fqwmacc16_f16xbf16);
-RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqwmmacc_vv_f64_bf16_f16, QWOP_UUU_H,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV, vfqmmacc_vv_f64_bf16_f16, QWOP_UUU_H,
         fqwmacc16_bf16xf16);
 
 /* Widening FP4 E2M1 -> FP8 E4M3 */
@@ -1428,9 +1428,9 @@ RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfwmmacc_vv_e5m2_e2m1, uint8_t,
         fwmacc4_e2m1_e5m2)
 
 /* FP4 quad-widening: 4-bit FP -> 16-bit FP accumulate */
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_f16_e2m1, uint16_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqmmacc_vv_f16_e2m1, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4, fqwmacc4_e2m1)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqwmmacc_vv_bf16_e2m1, uint16_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_4BIT, vfqmmacc_vv_bf16_e2m1, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fqwmacc4_e2m1_bf16)
 
@@ -1545,37 +1545,37 @@ RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfwmmacc_vv_e5m2_e2m1_mx, uint8_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fwmacc4_e2m1_e5m2, MX_SCALE_E5M2, float8_e5m2_muladd)
 
-/* vfqwmmacc MX quad-widening (byte-aligned inputs) */
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e4m3_mx, uint32_t,
+/* vfqmmacc MX quad-widening (byte-aligned inputs) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f32_e4m3_mx, uint32_t,
         uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e4m3, MX_SCALE_F32,
         float32_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e5m2_mx, uint32_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f32_e5m2_mx, uint32_t,
         uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e5m2, MX_SCALE_F32,
         float32_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e4m3_e5m2_mx, uint32_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f32_e4m3_e5m2_mx, uint32_t,
         uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e4m3xe5m2, MX_SCALE_F32,
         float32_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f32_e5m2_e4m3_mx, uint32_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f32_e5m2_e4m3_mx, uint32_t,
         uint8_t, uint8_t, uint32_t, uint32_t, fqwmacc8_e5m2xe4m3, MX_SCALE_F32,
         float32_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_f16_mx, uint64_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f64_f16_mx, uint64_t,
         uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16, MX_SCALE_F64,
         float64_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_bf16_mx, uint64_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f64_bf16_mx, uint64_t,
         uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16bf, MX_SCALE_F64,
         float64_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_f16_bf16_mx, uint64_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f64_f16_bf16_mx, uint64_t,
         uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16_f16xbf16, MX_SCALE_F64,
         float64_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqwmmacc_vv_f64_bf16_f16_mx, uint64_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX, vfqmmacc_vv_f64_bf16_f16_mx, uint64_t,
         uint16_t, uint16_t, uint64_t, uint64_t, fqwmacc16_bf16xf16, MX_SCALE_F64,
         float64_muladd)
 
-/* vfqwmmacc MX 4-bit inputs (E2M1 only) */
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfqwmmacc_vv_f16_e2m1_mx, uint16_t,
+/* vfqmmacc MX 4-bit inputs (E2M1 only) */
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfqmmacc_vv_f16_e2m1_mx, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fqwmacc4_e2m1, MX_SCALE_F16, float16_muladd)
-RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfqwmmacc_vv_bf16_e2m1_mx, uint16_t,
+RVVCALL(GEN_ZVVMM_VFMMACC_VV_MX_4BIT, vfqmmacc_vv_bf16_e2m1_mx, uint16_t,
         uint32_t, uint32_t, tile_extract_uint4, tile_extract_uint4,
         fqwmacc4_e2m1_bf16, MX_SCALE_BF16, bfloat16_muladd)
 
@@ -1608,19 +1608,19 @@ GEN_ZVVMM_VFIMMACC_VV(vfwimmacc_vv_bf16_ss, uint16_t, int8_t,  int8_t,  int64_t,
 GEN_ZVVMM_VFIMMACC_VV(vfwimmacc_vv_f32_ss,  uint32_t, int16_t, int16_t, int64_t,
     MXINT_IP_F32_S, MX_SCALE_F32,  float32_muladd)
 
-/* vfqwimmacc: signed integer inputs → FP accumulator, E8M0 MX */
+/* vfqimmacc: signed integer inputs → FP accumulator, E8M0 MX */
 /* I4 nibble → F16/BF16 (sew=1, widening=4) */
-GEN_ZVVMM_VFIMMACC_VV_4BIT(vfqwimmacc_vv_f16_ss,  uint16_t, int32_t,
+GEN_ZVVMM_VFIMMACC_VV_4BIT(vfqimmacc_vv_f16_ss,  uint16_t, int32_t,
     tile_extract_int4, tile_extract_int4,
     MXINT_IP_F32_S, MX_SCALE_F16,  float16_muladd)
-GEN_ZVVMM_VFIMMACC_VV_4BIT(vfqwimmacc_vv_bf16_ss, uint16_t, int32_t,
+GEN_ZVVMM_VFIMMACC_VV_4BIT(vfqimmacc_vv_bf16_ss, uint16_t, int32_t,
     tile_extract_int4, tile_extract_int4,
     MXINT_IP_F32_S, MX_SCALE_BF16, bfloat16_muladd)
 /* I8 → F32 (sew=2, widening=4) */
-GEN_ZVVMM_VFIMMACC_VV(vfqwimmacc_vv_f32_ss,  uint32_t, int8_t,  int8_t,  int64_t,
+GEN_ZVVMM_VFIMMACC_VV(vfqimmacc_vv_f32_ss,  uint32_t, int8_t,  int8_t,  int64_t,
     MXINT_IP_F32_S, MX_SCALE_F32,  float32_muladd)
 /* I16 → F64 (sew=3, widening=4) */
-GEN_ZVVMM_VFIMMACC_VV(vfqwimmacc_vv_f64_ss,  uint64_t, int16_t, int16_t, int64_t,
+GEN_ZVVMM_VFIMMACC_VV(vfqimmacc_vv_f64_ss,  uint64_t, int16_t, int16_t, int64_t,
     MXINT_IP_F32_S, MX_SCALE_F64,  float64_muladd)
 
 /* vf8wimmacc: signed integer inputs → FP accumulator, E8M0 MX (W=8) */
@@ -1869,48 +1869,48 @@ static bool trans_vwmmacc_vv(DisasContext *s, arg_rmrr *a)
     return zvvmm_macc_trans(s, a, fns, mxint_fns, ext_offsets, 2);
 }
 
-static bool trans_vqwmmacc_vv(DisasContext *s, arg_rmrr *a)
+static bool trans_vqmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
     static gen_helper_vmmacc * const fns[2][2][4] = {
         /* altfmt_a = 0 */
         {
             /* altfmt_b = 0: signed x signed */
             { NULL,
-              gen_helper_vqwmmacc_vv_h,
-              gen_helper_vqwmmacc_vv_w,
-              gen_helper_vqwmmacc_vv_d },
+              gen_helper_vqmmacc_vv_h,
+              gen_helper_vqmmacc_vv_w,
+              gen_helper_vqmmacc_vv_d },
             /* altfmt_b = 1: signed x unsigned */
             { NULL,
-              gen_helper_vqwmmacc_vv_h_su,
-              gen_helper_vqwmmacc_vv_w_su,
-              gen_helper_vqwmmacc_vv_d_su }
+              gen_helper_vqmmacc_vv_h_su,
+              gen_helper_vqmmacc_vv_w_su,
+              gen_helper_vqmmacc_vv_d_su }
         },
         /* altfmt_a = 1 */
         {
             /* altfmt_b = 0: unsigned x signed */
             { NULL,
-              gen_helper_vqwmmacc_vv_h_us,
-              gen_helper_vqwmmacc_vv_w_us,
-              gen_helper_vqwmmacc_vv_d_us },
+              gen_helper_vqmmacc_vv_h_us,
+              gen_helper_vqmmacc_vv_w_us,
+              gen_helper_vqmmacc_vv_d_us },
             /* altfmt_b = 1: unsigned x unsigned */
             { NULL,
-              gen_helper_vqwmmacc_vv_h_u,
-              gen_helper_vqwmmacc_vv_w_u,
-              gen_helper_vqwmmacc_vv_d_u }
+              gen_helper_vqmmacc_vv_h_u,
+              gen_helper_vqmmacc_vv_w_u,
+              gen_helper_vqmmacc_vv_d_u }
         }
     };
     static const uint32_t ext_offsets[4] = {
         0,                            CPU_CFG_OFFSET(ext_zvvmmi4h),
         CPU_CFG_OFFSET(ext_zvvmmbw),  CPU_CFG_OFFSET(ext_zvvmmhd)
     };
-    /* vm=0: vfqwimmacc — signed integer inputs, FP accumulator, E8M0 microscaled */
+    /* vm=0: vfqimmacc — signed integer inputs, FP accumulator, E8M0 microscaled */
     static gen_helper_vmmacc * const mxint_fns[2][4] = {
         /* altfmt = 0 (F16/F32/F64) */
-        { NULL, gen_helper_vfqwimmacc_vv_f16_ss,
-          gen_helper_vfqwimmacc_vv_f32_ss,
-          gen_helper_vfqwimmacc_vv_f64_ss },
+        { NULL, gen_helper_vfqimmacc_vv_f16_ss,
+          gen_helper_vfqimmacc_vv_f32_ss,
+          gen_helper_vfqimmacc_vv_f64_ss },
         /* altfmt = 1 (BF16) */
-        { NULL, gen_helper_vfqwimmacc_vv_bf16_ss, NULL, NULL }
+        { NULL, gen_helper_vfqimmacc_vv_bf16_ss, NULL, NULL }
     };
     return zvvmm_macc_trans(s, a, fns, mxint_fns, ext_offsets, 4);
 }
@@ -2157,23 +2157,23 @@ static bool trans_vfwmmacc_vv(DisasContext *s, arg_rmrr *a)
     return zvvmm_fmacc_trans(s, a, fns, mx_fns, ext_offsets, 2);
 }
 
-static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
+static bool trans_vfqmmacc_vv(DisasContext *s, arg_rmrr *a)
 {
     static gen_helper_vmmacc * const fns[2][2][2][4] = {
         /* altfmt_a = 0 */
         {
             /* altfmt_b = 0 (same) */
             {
-                { NULL, gen_helper_vfqwmmacc_vv_f16_e2m1,
-                  gen_helper_vfqwmmacc_vv_f32_e4m3,
-                  gen_helper_vfqwmmacc_vv_f64_f16 },
-                { NULL, gen_helper_vfqwmmacc_vv_bf16_e2m1, NULL, NULL }
+                { NULL, gen_helper_vfqmmacc_vv_f16_e2m1,
+                  gen_helper_vfqmmacc_vv_f32_e4m3,
+                  gen_helper_vfqmmacc_vv_f64_f16 },
+                { NULL, gen_helper_vfqmmacc_vv_bf16_e2m1, NULL, NULL }
             },
             /* altfmt_b = 1 (E3M0 B reserved) */
             {
                 { NULL, NULL,
-                  gen_helper_vfqwmmacc_vv_f32_e4m3_e5m2,
-                  gen_helper_vfqwmmacc_vv_f64_f16_bf16 },
+                  gen_helper_vfqmmacc_vv_f32_e4m3_e5m2,
+                  gen_helper_vfqmmacc_vv_f64_f16_bf16 },
                 { NULL, NULL, NULL, NULL }
             }
         },
@@ -2182,15 +2182,15 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
             /* altfmt_b = 0 (E3M0 A reserved) */
             {
                 { NULL, NULL,
-                  gen_helper_vfqwmmacc_vv_f32_e5m2_e4m3,
-                  gen_helper_vfqwmmacc_vv_f64_bf16_f16 },
+                  gen_helper_vfqmmacc_vv_f32_e5m2_e4m3,
+                  gen_helper_vfqmmacc_vv_f64_bf16_f16 },
                 { NULL, NULL, NULL, NULL }
             },
             /* altfmt_b = 1 (E3M0 A+B reserved) */
             {
                 { NULL, NULL,
-                  gen_helper_vfqwmmacc_vv_f32_e5m2,
-                  gen_helper_vfqwmmacc_vv_f64_bf16 },
+                  gen_helper_vfqmmacc_vv_f32_e5m2,
+                  gen_helper_vfqmmacc_vv_f64_bf16 },
                 { NULL, NULL, NULL, NULL }
             }
         }
@@ -2218,16 +2218,16 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
         {
             /* altfmt_b = 0 */
             {
-                { NULL, gen_helper_vfqwmmacc_vv_f16_e2m1_mx,
-                  gen_helper_vfqwmmacc_vv_f32_e4m3_mx,
-                  gen_helper_vfqwmmacc_vv_f64_f16_mx },
-                { NULL, gen_helper_vfqwmmacc_vv_bf16_e2m1_mx, NULL, NULL }
+                { NULL, gen_helper_vfqmmacc_vv_f16_e2m1_mx,
+                  gen_helper_vfqmmacc_vv_f32_e4m3_mx,
+                  gen_helper_vfqmmacc_vv_f64_f16_mx },
+                { NULL, gen_helper_vfqmmacc_vv_bf16_e2m1_mx, NULL, NULL }
             },
             /* altfmt_b = 1 (E3M0 B reserved) */
             {
                 { NULL, NULL,
-                  gen_helper_vfqwmmacc_vv_f32_e4m3_e5m2_mx,
-                  gen_helper_vfqwmmacc_vv_f64_f16_bf16_mx },
+                  gen_helper_vfqmmacc_vv_f32_e4m3_e5m2_mx,
+                  gen_helper_vfqmmacc_vv_f64_f16_bf16_mx },
                 { NULL, NULL, NULL, NULL }
             }
         },
@@ -2236,15 +2236,15 @@ static bool trans_vfqwmmacc_vv(DisasContext *s, arg_rmrr *a)
             /* altfmt_b = 0 */
             {
                 { NULL, NULL,
-                  gen_helper_vfqwmmacc_vv_f32_e5m2_e4m3_mx,
-                  gen_helper_vfqwmmacc_vv_f64_bf16_f16_mx },
+                  gen_helper_vfqmmacc_vv_f32_e5m2_e4m3_mx,
+                  gen_helper_vfqmmacc_vv_f64_bf16_f16_mx },
                 { NULL, NULL, NULL, NULL }
             },
             /* altfmt_b = 1 */
             {
                 { NULL, NULL,
-                  gen_helper_vfqwmmacc_vv_f32_e5m2_mx,
-                  gen_helper_vfqwmmacc_vv_f64_bf16_mx },
+                  gen_helper_vfqmmacc_vv_f32_e5m2_mx,
+                  gen_helper_vfqmmacc_vv_f64_bf16_mx },
                 { NULL, NULL, NULL, NULL }
             }
         }
