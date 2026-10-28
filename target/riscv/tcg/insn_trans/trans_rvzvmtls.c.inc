@@ -132,8 +132,6 @@ static bool trans_##NAME##_v(DisasContext *s, arg_##NAME##_v *a)             \
     uint32_t data = 0;                                                       \
     data = FIELD_DP32(data, VDATA, VM,      a->vm);                          \
     data = FIELD_DP32(data, VDATA, LMUL,    s->lmul);                        \
-    data = FIELD_DP32(data, VDATA, VTA,     s->vta);                         \
-    data = FIELD_DP32(data, VDATA, VMA,     s->vma);                         \
     data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);                      \
                                                                              \
     return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, IS_LOAD, fn, s);     \

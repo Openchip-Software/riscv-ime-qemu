@@ -6091,7 +6091,6 @@ zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
         riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, ra);
     const uint32_t lambda = 1 << (vlambda - 1);
     const uint32_t esz = 1 << log2_esz;
-    const uint32_t vma = vext_vma(desc);
 
     /* VL must be a multiple of lambda * LMUL (VL = 0 is). */
     if (env->vl % (lambda * lmul)) {
@@ -6119,11 +6118,12 @@ zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
         uint16_t elementoff;
         index_to_regoffset(i, lmul, lambda, &regoff, &elementoff);
 
+        /*
+         * Inactive and tail elements are left undisturbed: the vta/vma
+         * fill policies do not apply to tile loads, and a tile store must
+         * never write its source register group.
+         */
         if (!vm && !vext_elem_mask(v0, i)) {
-            /* set masked-off elements to 1s if agnostic */
-            vext_set_elems_1s(vd + regoff * vlenb, vma,
-                              elementoff * esz,
-                              (elementoff + 1) * esz);
             continue;
         }
 
@@ -6137,18 +6137,6 @@ zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
     }
 
     env->vstart = 0;
-
-    /* Set tail elements (beyond vl) to all-1s when tail-agnostic */
-    const uint32_t vta = vext_vta(desc);
-    if (vta) {
-        const uint32_t max_elems = lmul * vlenb / esz;
-        for (uint32_t i = env->vl; i < max_elems; ++i) {
-            uint8_t  regoff;
-            uint16_t elementoff;
-            index_to_regoffset(i, lmul, lambda, &regoff, &elementoff);
-            memset(vd + regoff * vlenb + elementoff * esz, 0xff, esz);
-        }
-    }
 }
 
 #define GEN_ZVVM_LD_TILE(NAME, ETYPE, LOAD_FN, ADDRCALC_FN)            \

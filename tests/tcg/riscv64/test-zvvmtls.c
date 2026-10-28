@@ -569,6 +569,105 @@ static int test_vl_multiple(void)
     return fail;
 }
 
+/*
+ * Tile loads leave inactive and tail elements undisturbed even with
+ * vta = vma = 1, and tile stores never write their source register group.
+ * QEMU only applies the all-ones fill with rvv_ta_all_1s/rvv_ma_all_1s,
+ * so this is also run with those options (see Makefile.target).
+ */
+static void set_e32_vtype(uint64_t avl, int agnostic)
+{
+    uint64_t vtype = 2 << 3 | 1ULL << 60 | (agnostic ? 3 << 6 : 0);
+    uint64_t vl;
+
+    asm volatile("vsetvl %0, %1, %2" : "=r"(vl) : "r"(avl), "r"(vtype));
+}
+
+static int test_undisturbed(void)
+{
+    static const struct {
+        const char *name;
+        uint32_t insn;
+        int load;
+    } ops[] = {
+        { "vmtl",  INSN_VMTL_V8,  1 }, { "vmttl", INSN_VMTTL_V8, 1 },
+        { "vmts",  INSN_VMTS_V8,  0 }, { "vmtts", INSN_VMTTS_V8, 0 },
+    };
+    uint64_t vlenb;
+    int fail = 0;
+
+    asm volatile("csrr %0, vlenb" : "=r"(vlenb));
+    uint32_t vlmax = vlenb / 4, vl = vlmax / 2;
+    uint32_t *orig = calloc(vlmax, 4), *mem = calloc(vlmax, 4);
+    uint32_t *out = calloc(vlmax, 4);
+
+    for (uint32_t i = 0; i < vlmax; i++) {
+        orig[i] = 0x1000 + i;
+    }
+
+    for (int op = 0; op < 4; op++) {
+        for (int masked = 0; masked < 2; masked++) {
+            for (uint32_t i = 0; i < vlmax; i++) {
+                mem[i] = 0x2000 + i;
+            }
+            set_e32_vtype(vlmax, 0);
+            asm volatile("vle32.v v8, (%0)" : : "r"(orig) : "memory");
+            asm volatile("vsetvl zero, %0, %1\n\tvmv.v.x v0, %2"
+                         : : "r"(vlenb), "r"(0L), "r"(0x55));
+
+            /* VL = VLMAX / 2, e32, m1, lambda = 1, vta = vma = 1 */
+            set_e32_vtype(vl, 1);
+            switch (op * 2 + masked) {
+            case 0:
+                DO_TILE(INSN_VMTL_V8, mem, 0);
+                break;
+            case 1:
+                DO_TILE(MASKED(INSN_VMTL_V8), mem, 0);
+                break;
+            case 2:
+                DO_TILE(INSN_VMTTL_V8, mem, 0);
+                break;
+            case 3:
+                DO_TILE(MASKED(INSN_VMTTL_V8), mem, 0);
+                break;
+            case 4:
+                DO_TILE(INSN_VMTS_V8, mem, 0);
+                break;
+            case 5:
+                DO_TILE(MASKED(INSN_VMTS_V8), mem, 0);
+                break;
+            case 6:
+                DO_TILE(INSN_VMTTS_V8, mem, 0);
+                break;
+            case 7:
+                DO_TILE(MASKED(INSN_VMTTS_V8), mem, 0);
+                break;
+            }
+
+            set_e32_vtype(vlmax, 0);
+            asm volatile("vse32.v v8, (%0)" : : "r"(out) : "memory");
+
+            for (uint32_t i = 0; i < vlmax; i++) {
+                int active = i < vl && (!masked || !(i & 1));
+                uint32_t exp = ops[op].load && active ? 0x2000 + i : orig[i];
+
+                if (out[i] != exp) {
+                    printf("FAIL undisturbed: %s%s elem %u got 0x%x exp 0x%x\n",
+                           ops[op].name, masked ? " v0.t" : "", i, out[i],
+                           exp);
+                    fail = 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    free(orig);
+    free(mem);
+    free(out);
+    return fail;
+}
+
 /* ====================================================================
  * Main: iterate over all valid (sew, lmul, lambda) configurations
  * ==================================================================== */
@@ -623,6 +722,7 @@ int main(int argc, char **argv)
     fail |= test_masked_v0();
     fail |= test_lambda_imm(lambda_mask);
     fail |= test_vl_multiple();
+    fail |= test_undisturbed();
 
     if (fail) {
         printf("FAILED\n");
