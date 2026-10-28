@@ -397,6 +397,55 @@ static int test_vill(void)
     return 0;
 }
 
+/*
+ * A masked tile load whose destination overlaps v0 must raise an
+ * illegal-instruction exception; a masked tile store may use v0 as its
+ * source, and a masked load into another group is legal.
+ */
+#define MASKED(insn)        ((insn) & ~(1u << 25))
+#define WITH_VD_V0(insn)    ((insn) & ~(31u << 7))
+
+static int test_masked_v0(void)
+{
+    uint64_t vlenb;
+    struct sigaction sa = {
+        .sa_sigaction = sigill_handler,
+        .sa_flags = SA_SIGINFO,
+    };
+    struct sigaction old;
+    int fail = 0;
+
+    asm volatile("csrr %0, vlenb" : "=r"(vlenb));
+    uint8_t *buf = calloc(1, vlenb);
+
+    set_tile_vtype(1, 1, 1);
+    sigaction(SIGILL, &sa, &old);
+
+    sigill_count = 0;
+    DO_TILE(WITH_VD_V0(MASKED(INSN_VMTL_V8)), buf, 0);
+    DO_TILE(WITH_VD_V0(MASKED(INSN_VMTTL_V8)), buf, 0);
+    if (sigill_count != 2) {
+        printf("FAIL masked v0: %d of 2 loads into v0 trapped\n",
+               sigill_count);
+        fail = 1;
+    }
+
+    sigill_count = 0;
+    DO_TILE(WITH_VD_V0(MASKED(INSN_VMTS_V8)), buf, 0);
+    DO_TILE(WITH_VD_V0(MASKED(INSN_VMTTS_V8)), buf, 0);
+    DO_TILE(MASKED(INSN_VMTL_V8), buf, 0);
+    DO_TILE(MASKED(INSN_VMTTL_V8), buf, 0);
+    if (sigill_count != 0) {
+        printf("FAIL masked v0: %d of 4 legal masked tile ops trapped\n",
+               sigill_count);
+        fail = 1;
+    }
+
+    sigaction(SIGILL, &old, NULL);
+    free(buf);
+    return fail;
+}
+
 /* ====================================================================
  * Main: iterate over all valid (sew, lmul, lambda) configurations
  * ==================================================================== */
@@ -438,6 +487,7 @@ int main(void)
     }
 
     fail |= test_vill();
+    fail |= test_masked_v0();
 
     if (fail) {
         printf("FAILED\n");

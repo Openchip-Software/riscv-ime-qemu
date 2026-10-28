@@ -26,7 +26,7 @@ typedef void gen_helper_ldst_tile(TCGv_ptr, TCGv_ptr, TCGv, TCGv,
                                   TCGv_env, TCGv_i32);
 
 static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
-                            uint32_t data,
+                            uint32_t data, bool is_load,
                             gen_helper_ldst_tile *fn,
                             DisasContext *s)
 {
@@ -61,6 +61,15 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
         return false;
     }
 
+    /*
+     * The destination of a masked tile load must not overlap v0.  The
+     * group is LMUL-aligned, so it overlaps v0 exactly when vd == 0.  A
+     * masked tile store may use v0 as its source, as in base V.
+     */
+    if (is_load && !require_vm(FIELD_EX32(data, VDATA, VM), vd)) {
+        return false;
+    }
+
     dest = tcg_temp_new_ptr();
     mask = tcg_temp_new_ptr();
     base = get_gpr(s, rs1, EXT_NONE);
@@ -92,7 +101,7 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
  * they apply uniformly to all four forms; per-translator hooks are not
  * needed today.
  */
-#define GEN_LDST_TILE_TRANS(NAME)                                            \
+#define GEN_LDST_TILE_TRANS(NAME, IS_LOAD)                                   \
 static bool trans_##NAME##_v(DisasContext *s, arg_##NAME##_v *a)             \
 {                                                                            \
     REQUIRE_ZVVMTLS(s);                                                      \
@@ -113,10 +122,10 @@ static bool trans_##NAME##_v(DisasContext *s, arg_##NAME##_v *a)             \
     data = FIELD_DP32(data, VDATA, VMA,     s->vma);                         \
     data = FIELD_DP32(data, VDATA, VLAMBDA, a->lambda);                      \
                                                                              \
-    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, fn, s);              \
+    return ldst_tile_trans(a->rd, a->rs1, a->rs2, data, IS_LOAD, fn, s);     \
 }
 
-GEN_LDST_TILE_TRANS(vmtl)
-GEN_LDST_TILE_TRANS(vmttl)
-GEN_LDST_TILE_TRANS(vmts)
-GEN_LDST_TILE_TRANS(vmtts)
+GEN_LDST_TILE_TRANS(vmtl, true)
+GEN_LDST_TILE_TRANS(vmttl, true)
+GEN_LDST_TILE_TRANS(vmts, false)
+GEN_LDST_TILE_TRANS(vmtts, false)
