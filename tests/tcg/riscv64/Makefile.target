@@ -24,6 +24,12 @@ test-zvvmtls: CFLAGS += -march=rv64gcv
 test-zvvmtls: LDFLAGS += -static
 run-test-zvvmtls: QEMU_OPTS += -cpu rv64,v=true,vlen=256,x-zvvm=true
 
+# Again with only lambda 1 and 2 supported; the argument tells the test.
+run-test-zvvmtls-lambda: test-zvvmtls
+	$(call run-test, $@, $(QEMU) $(QEMU_OPTS) \
+		-cpu rv64,v=true,vlen=256,x-zvvm=true,zvvm-lambda=3 $< 3)
+EXTRA_RUNS += run-test-zvvmtls-lambda
+
 TESTS += test-zvvmm-int
 test-zvvmm-int: CFLAGS += -march=rv64gcv
 test-zvvmm-int: LDFLAGS += -static

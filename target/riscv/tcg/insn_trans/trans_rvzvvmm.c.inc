@@ -1636,17 +1636,18 @@ typedef void gen_helper_vmmacc(TCGv_ptr, TCGv_ptr, TCGv_ptr, TCGv_ptr,
                                TCGv_env, TCGv_i32);
 
 /*
- * Compute log2(mul_c) for the accumulator tile register group.
+ * Compute log2(mul_c) for the accumulator tile register group, for the
+ * lambda encoded as vlambda (as in vtype.lambda[2:0]).
  * mul_c = vlenb / (sewb * lambda^2).  Returns -1 if the configuration
  * is illegal (vlambda == 0 or mul_c not in {1, 2, 4, 8, 16}).
  */
-static int8_t zvvmm_mul_c_log2(DisasContext *s)
+static int8_t zvvmm_mul_c_log2(DisasContext *s, uint32_t vlambda)
 {
-    if (s->vlambda == 0) {
+    if (vlambda == 0) {
         return -1;
     }
 
-    uint32_t lambda_log2 = s->vlambda - 1;
+    uint32_t lambda_log2 = vlambda - 1;
     uint32_t vlenb_log2 = ctz32(s->cfg_ptr->vlenb);
     int32_t mul_c_log2 = vlenb_log2 - s->sew - 2 * lambda_log2;
 
@@ -1685,7 +1686,7 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
         return false;
     }
 
-    int8_t mul_c_log2 = zvvmm_mul_c_log2(s);
+    int8_t mul_c_log2 = zvvmm_mul_c_log2(s, s->vlambda);
 
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&
@@ -1746,7 +1747,7 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
         return false;
     }
 
-    int8_t mul_c_log2 = zvvmm_mul_c_log2(s);
+    int8_t mul_c_log2 = zvvmm_mul_c_log2(s, s->vlambda);
 
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&

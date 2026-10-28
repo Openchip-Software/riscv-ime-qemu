@@ -446,14 +446,95 @@ static int test_masked_v0(void)
     return fail;
 }
 
+/*
+ * A nonzero lambda immediate is not clamped: if the CPU does not support
+ * it (lambda_mask, bit log2(lambda)) or VLEN / (SEW * lambda^2) is not in
+ * {1, 2, 4, 8, 16}, the tile load raises an illegal-instruction exception.
+ */
+#define WITH_LAMBDA(insn, l)    ((insn) | (uint32_t)(l) << 29)
+
+static void do_vmtl_lambda(int lambda_enc, const void *b, uint64_t ld)
+{
+    switch (lambda_enc) {
+    case 1:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 1), b, ld);
+        break;
+    case 2:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 2), b, ld);
+        break;
+    case 3:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 3), b, ld);
+        break;
+    case 4:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 4), b, ld);
+        break;
+    case 5:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 5), b, ld);
+        break;
+    case 6:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 6), b, ld);
+        break;
+    case 7:
+        DO_TILE(WITH_LAMBDA(INSN_VMTL_V8, 7), b, ld);
+        break;
+    }
+}
+
+static int test_lambda_imm(long lambda_mask)
+{
+    uint64_t vlenb;
+    struct sigaction sa = {
+        .sa_sigaction = sigill_handler,
+        .sa_flags = SA_SIGINFO,
+    };
+    struct sigaction old;
+    int fail = 0;
+
+    asm volatile("csrr %0, vlenb" : "=r"(vlenb));
+    uint8_t *buf = calloc(1, vlenb);
+
+    sigaction(SIGILL, &sa, &old);
+    for (int sew = 1; sew <= 8; sew *= 2) {
+        for (int enc = 1; enc <= 7; enc++) {
+            uint64_t lambda = 1 << (enc - 1);
+            uint64_t mul_c_x16 = vlenb * 8 * 16 / (sew * 8 * lambda * lambda);
+            int legal = mul_c_x16 >= 16 && mul_c_x16 <= 256 &&
+                        (lambda_mask & lambda);
+
+            set_tile_vtype(sew, 1, 1);
+            sigill_count = 0;
+            do_vmtl_lambda(enc, buf, lambda);
+            if (sigill_count != !legal) {
+                printf("FAIL lambda imm: e%d L%lu %s\n", sew * 8,
+                       (unsigned long)lambda,
+                       legal ? "trapped" : "did not trap");
+                fail = 1;
+            }
+        }
+    }
+    sigaction(SIGILL, &old, NULL);
+    free(buf);
+    return fail;
+}
+
 /* ====================================================================
  * Main: iterate over all valid (sew, lmul, lambda) configurations
  * ==================================================================== */
 
-int main(void)
+/*
+ * argv[1], if given, is the set of lambdas the CPU supports, as for the
+ * zvvm-lambda CPU property (bit n = lambda 2^n); the default is all.
+ */
+int main(int argc, char **argv)
 {
+    long lambda_mask = 0x7f;
     uint64_t vlenb;
     asm volatile("csrr %0, vlenb" : "=r"(vlenb));
+
+    if (argc > 1 && sscanf(argv[1], "%li", &lambda_mask) != 1) {
+        printf("usage: %s [supported-lambda-mask]\n", argv[0]);
+        return 1;
+    }
 
     static const int sews[]    = {1, 2, 4, 8};
     static const int lmuls[]   = {1, 2, 4};
@@ -470,7 +551,7 @@ int main(void)
                 int lambda = lambdas[ai];
                 int mu     = (int)vlenb / (sew * lambda);
 
-                if (mu < 1) {
+                if (mu < 1 || !(lambda_mask & lambda)) {
                     continue;
                 }
 
@@ -488,6 +569,7 @@ int main(void)
 
     fail |= test_vill();
     fail |= test_masked_v0();
+    fail |= test_lambda_imm(lambda_mask);
 
     if (fail) {
         printf("FAILED\n");

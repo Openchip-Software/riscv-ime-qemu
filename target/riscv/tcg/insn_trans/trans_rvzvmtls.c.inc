@@ -33,6 +33,7 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
     TCGv_ptr dest, mask;
     TCGv base, stride;
     TCGv_i32 desc;
+    uint32_t lambda;
 
     /*
      * Tile loads/stores follow the standard vector rules: they trap when
@@ -50,6 +51,19 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
      * value (undefined behaviour).
      */
     if (s->lmul < 0) {
+        return false;
+    }
+
+    /*
+     * A nonzero lambda immediate requests that exact lambda; unlike a
+     * vtype write it is not clamped.  It must be supported by the CPU and
+     * legal for the current (VLEN, SEW), i.e. VLEN / (SEW * lambda^2)
+     * must be in {1, 2, 4, 8, 16}.
+     */
+    lambda = FIELD_EX32(data, VDATA, VLAMBDA);
+    if (lambda &&
+        (!(s->cfg_ptr->zvvm_lambda_supported & (1 << (lambda - 1))) ||
+         zvvmm_mul_c_log2(s, lambda) < 0)) {
         return false;
     }
 
