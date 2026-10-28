@@ -517,6 +517,58 @@ static int test_lambda_imm(long lambda_mask)
     return fail;
 }
 
+/*
+ * VL must be a multiple of lambda * LMUL; otherwise every tile load/store
+ * raises an illegal-instruction exception.  VL = 0 is a multiple.
+ */
+static int test_vl_multiple(void)
+{
+    static const struct {
+        int lmul, lambda;
+        uint64_t avl;
+    } cases[] = {
+        { 1, 2, 4 }, { 1, 2, 3 }, { 1, 2, 0 },
+        { 2, 1, 4 }, { 2, 1, 3 }, { 2, 2, 4 }, { 2, 2, 6 },
+    };
+    uint64_t vlenb;
+    struct sigaction sa = {
+        .sa_sigaction = sigill_handler,
+        .sa_flags = SA_SIGINFO,
+    };
+    struct sigaction old;
+    int fail = 0;
+
+    asm volatile("csrr %0, vlenb" : "=r"(vlenb));
+    uint8_t *buf = calloc(1, 2 * vlenb);
+
+    sigaction(SIGILL, &sa, &old);
+    for (int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        uint64_t vtype = (uint64_t)__builtin_ctz(cases[i].lmul) | 2 << 3 |
+                         (uint64_t)(__builtin_ctz(cases[i].lambda) + 1) << 60;
+        uint64_t vl;
+        int legal;
+
+        asm volatile("vsetvl %0, %1, %2"
+                     : "=r"(vl) : "r"(cases[i].avl), "r"(vtype));
+        legal = vl % (cases[i].lambda * cases[i].lmul) == 0;
+
+        sigill_count = 0;
+        do_vmtl(buf, 0);
+        do_vmttl(buf, 0);
+        do_vmts(buf, 0);
+        do_vmtts(buf, 0);
+        if (sigill_count != (legal ? 0 : 4)) {
+            printf("FAIL vl multiple: e32 m%d l%d vl=%lu: %d of 4 trapped\n",
+                   cases[i].lmul, cases[i].lambda, (unsigned long)vl,
+                   sigill_count);
+            fail = 1;
+        }
+    }
+    sigaction(SIGILL, &old, NULL);
+    free(buf);
+    return fail;
+}
+
 /* ====================================================================
  * Main: iterate over all valid (sew, lmul, lambda) configurations
  * ==================================================================== */
@@ -570,6 +622,7 @@ int main(int argc, char **argv)
     fail |= test_vill();
     fail |= test_masked_v0();
     fail |= test_lambda_imm(lambda_mask);
+    fail |= test_vl_multiple();
 
     if (fail) {
         printf("FAILED\n");

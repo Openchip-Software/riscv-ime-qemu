@@ -6093,6 +6093,11 @@ zvmtls_ldst_tile(void *vd, void *v0, target_ulong base,
     const uint32_t esz = 1 << log2_esz;
     const uint32_t vma = vext_vma(desc);
 
+    /* VL must be a multiple of lambda * LMUL (VL = 0 is). */
+    if (env->vl % (lambda * lmul)) {
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, ra);
+    }
+
     /*
      * rs2 = x0 selects the spec-defined default leading dimension:
      *   - preserve_order (vmtl.v / vmts.v):   LD = λ × LMUL
