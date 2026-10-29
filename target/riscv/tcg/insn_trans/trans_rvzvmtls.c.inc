@@ -35,6 +35,14 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
     TCGv_i32 desc;
 
     /*
+     * Tile loads/stores follow the standard vector rules: they trap when
+     * mstatus.VS is Off or vtype.vill is set.
+     */
+    if (!require_rvv(s) || !vext_check_isa_ill(s)) {
+        return false;
+    }
+
+    /*
      * Spec commit 078b98ad (2026-06-15) makes fractional LMUL invalid for
      * every Zvvm instruction including tile load/store.  s->lmul is signed
      * (negative encodes mf2/mf4/mf8); reject those before we touch the
