@@ -1124,7 +1124,12 @@ static void riscv_cpu_reset_hold(Object *obj, ResetType type)
     set_default_nan_mode(1, &env->fp_status);
     /* Default NaN value: sign bit clear, frac msb set */
     set_float_default_nan_pattern(0b01000000, &env->fp_status);
+    /* vext_vtype_init() is in tcg/vector_helper.c, built only with TCG. */
+#ifdef CONFIG_TCG
     vext_vtype_init(env);
+#else
+    env->vill = true;
+#endif
 
 #ifndef CONFIG_USER_ONLY
 #ifdef CONFIG_TCG
