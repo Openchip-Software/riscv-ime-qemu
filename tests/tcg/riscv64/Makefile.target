@@ -37,7 +37,7 @@ run-test-zvvmtls-agnostic: test-zvvmtls
 EXTRA_RUNS += run-test-zvvmtls-agnostic
 
 TESTS += test-zvvmm-int
-test-zvvmm-int: CFLAGS += -march=rv64gcv
+test-zvvmm-int: CFLAGS += -march=rv64gcv -Wno-unused-function
 test-zvvmm-int: LDFLAGS += -static
 run-test-zvvmm-int: QEMU_OPTS += -cpu rv64,v=true,vlen=256,x-zvvm=true
 
@@ -47,6 +47,6 @@ test-zvvmm-fp: LDFLAGS += -static -lm
 run-test-zvvmm-fp: QEMU_OPTS += -cpu rv64,v=true,vlen=256,x-zvvm=true,zfbfmin=true,zvfbfa=true,x-zvfofp8min=true
 
 TESTS += test-zvvmm-mx
-test-zvvmm-mx: CFLAGS += -march=rv64gcv
+test-zvvmm-mx: CFLAGS += -march=rv64gcv -Wno-unused-function
 test-zvvmm-mx: LDFLAGS += -static -lm
 run-test-zvvmm-mx: QEMU_OPTS += -cpu rv64,v=true,vlen=256,x-zvvm=true,zfbfmin=true,zvfbfa=true,x-zvvfmmmx=true
