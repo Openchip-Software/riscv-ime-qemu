@@ -1,0 +1,217 @@
+# GitHub Actions port of the upstream GitLab CI jobs in .gitlab-ci.d/ that
+# build or test RISC-V targets. Each matrix entry is named after the
+# upstream jobs it ports and carries their variables unchanged. The job
+# builds its container from tests/docker/dockerfiles, as the upstream
+# *-container jobs do, and .github/ci/run-gitlab-job.sh runs the script
+# of the upstream job template inside it.
+#
+# Jobs that download guest images or other test assets, such as the
+# functional-* jobs, are not ported. The only exception is test_tuxrun
+# for riscv64 and riscv32, which boots Linux; its assets are cached.
+
+name: CI
+
+# Run for pull requests into ime/11.1.2 only: when one is opened,
+# reopened or updated. Pushes to feature branches do not run CI.
+on:
+  pull_request:
+    branches: ['ime/11.1.2']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.timeout || 120 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # .gitlab-ci.d/buildtest.yml
+
+          - name: build-system-debian + check-system-debian
+            template: native
+            image: debian
+            configure_args: --with-coroutine=sigaltstack --enable-rust
+            targets: >-
+              arm-softmmu hexagon-softmmu i386-softmmu riscv64-softmmu
+              sh4eb-softmmu sparc-softmmu xtensa-softmmu
+            make_check_args: check-build
+            test_make_check_args: check
+            # From functional-system-debian
+            functional_tests: func-riscv64-tuxrun
+
+          - name: build-system-fedora + check-system-fedora + crash-test-fedora
+            template: native
+            image: fedora
+            configure_args: >-
+              --disable-gcrypt --enable-nettle --enable-docs
+              --enable-crypto-afalg --enable-rust
+            targets: >-
+              mips-softmmu xtensa-softmmu m68k-softmmu riscv32-softmmu
+              ppc-softmmu sparc64-softmmu
+            make_check_args: check-build check-doc
+            test_make_check_args: check
+            test_script: |
+              ./run scripts/device-crash-test -q ./qemu-system-ppc
+              ./run scripts/device-crash-test -q ./qemu-system-riscv32
+            # From functional-system-fedora
+            functional_tests: func-riscv32-tuxrun
+
+          - name: build-user
+            template: native
+            image: debian-all-test-cross
+            configure_args: >-
+              --disable-tools --disable-system
+              --target-list-exclude=alpha-linux-user,sh4-linux-user
+            make_check_args: check-tcg
+
+          - name: build-user-static
+            template: native
+            image: debian-all-test-cross
+            configure_args: --disable-tools --disable-system --static
+            make_check_args: check-tcg
+
+          - name: build-some-softmmu
+            template: native
+            image: debian-all-test-cross
+            configure_args: --disable-tools --enable-debug
+            targets: >-
+              arm-softmmu aarch64-softmmu i386-softmmu riscv64-softmmu
+              s390x-softmmu x86_64-softmmu
+            make_check_args: check-tcg
+
+          - name: clang-user
+            template: native
+            image: debian-all-test-cross
+            configure_args: >-
+              --cc=clang --cxx=clang++ --disable-system --enable-ubsan
+              --target-list-exclude=alpha-linux-user,microblazeel-linux-user,aarch64_be-linux-user,i386-linux-user,m68k-linux-user,mipsn32el-linux-user,xtensaeb-linux-user
+              --extra-cflags=-fno-sanitize-recover=undefined
+            make_check_args: check-unit check-tcg
+
+          # tsan-build is not run. Upstream runs no tests in it: it only
+          # builds riscv64-softmmu, among other targets, with clang and
+          # ThreadSanitizer. clang-user already builds target/riscv with
+          # clang and also runs the riscv64 TCG tests.
+          #
+          # - name: tsan-build
+          #   template: native
+          #   image: ubuntu2404
+          #   configure_args: >-
+          #     --enable-tsan --cc=clang --cxx=clang++
+          #     --enable-trace-backends=ust --disable-slirp
+          #   targets: >-
+          #     x86_64-softmmu ppc64-softmmu riscv64-softmmu x86_64-linux-user
+          #   make: setarch -R make
+
+          - name: build-without-defaults
+            template: native
+            image: centos9
+            configure_args: >-
+              --without-default-devices
+              --without-default-features
+              --disable-fdt
+              --disable-pie
+              --disable-qom-cast-debug
+              --disable-strip
+              --target-list-exclude=aarch64-softmmu,mips64-softmmu,mipsel-softmmu,ppc64-softmmu,sh4el-softmmu,xtensa-softmmu,x86_64-softmmu
+            make_check_args: check
+            free_disk: true
+            timeout: 360
+
+          # .gitlab-ci.d/crossbuilds.yml
+
+          - name: cross-riscv64-system
+            template: cross-system
+            image: debian-riscv64-cross
+
+          - name: cross-riscv64-user
+            template: cross-user
+            image: debian-riscv64-cross
+
+          - name: cross-riscv64-kvm-only
+            template: cross-accel
+            image: debian-riscv64-cross
+            extra_configure_opts: --disable-tcg --without-default-features
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Free disk space
+        if: matrix.free_disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Cache functional test assets
+        if: matrix.functional_tests
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: functional-cache
+          key: functional-${{ matrix.image }}-${{ hashFiles('tests/functional/riscv*/test_tuxrun.py') }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build container
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: tests/docker/dockerfiles/${{ matrix.image }}.docker
+          tags: qemu/${{ matrix.image }}
+          load: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+
+      - name: Run job
+        env:
+          TARGETS: ${{ matrix.targets }}
+          CONFIGURE_ARGS: ${{ matrix.configure_args }}
+          EXTRA_CONFIGURE_OPTS: ${{ matrix.extra_configure_opts }}
+          MAKE_CHECK_ARGS: ${{ matrix.make_check_args }}
+          TEST_MAKE_CHECK_ARGS: ${{ matrix.test_make_check_args }}
+          TEST_SCRIPT: ${{ matrix.test_script }}
+          JOB_MAKE: ${{ matrix.make }}
+          FUNCTIONAL_TESTS: ${{ matrix.functional_tests }}
+        # The GitLab.com shared runners run job containers in privileged
+        # mode. Some tests depend on it: the add_key() call in
+        # test-crypto-secret and the loop devices in qemu-iotests 108.
+        run: |
+          docker run --rm --privileged \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            -e TARGETS -e CONFIGURE_ARGS -e EXTRA_CONFIGURE_OPTS \
+            -e MAKE_CHECK_ARGS -e TEST_MAKE_CHECK_ARGS -e TEST_SCRIPT \
+            -e JOB_MAKE -e FUNCTIONAL_TESTS \
+            qemu/${{ matrix.image }} \
+            .github/ci/run-gitlab-job.sh ${{ matrix.template }}
+
+      # The container runs as root, and qemu_test/asset.py makes each
+      # asset readable by its owner and group only. Give the assets to the
+      # runner user so that the cache step can save them.
+      - name: Take ownership of functional test assets
+        if: always() && matrix.functional_tests
+        run: sudo chown -R "$(id -u):$(id -g)" functional-cache
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: logs-${{ matrix.image }}-${{ strategy.job-index }}
+          path: |
+            build/config.log
+            build/meson-logs/
+            build/tests/tcg/**/*.out
+            build/tests/functional/**/*.log
+          if-no-files-found: ignore
