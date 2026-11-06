@@ -680,6 +680,17 @@ which will output an execution trace following this structure::
 
 Please note that you need to configure QEMU with Capstone support to get disassembly.
 
+The ``memvals`` option logs every memory access with its virtual
+address, physical address, device, size in bytes and value. In user
+mode the physical address and device are printed as ``-``::
+
+  $ qemu-system-riscv64 $(QEMU_ARGS) \
+    -plugin ./contrib/plugins/libexeclog.so,memvals=on -d plugin
+
+  # vCPU, vAddr, opcode, disassembly[, load/store, vaddr, paddr, device, size, value]...
+  0, 0x80000062, 0x50583, "lb a1,0(a0)", load, 0x40001000, 0x80001000, RAM, 1, 0x81
+  0, 0x8000006a, 0x6514, "ld a3,8(a0)", load, 0x40001008, 0x80001008, RAM, 8, 0x123456789abcdef0
+
 The output can be filtered to only track certain instructions or
 addresses using the ``ifilter`` or ``afilter`` options. You can stack the
 arguments if required::
