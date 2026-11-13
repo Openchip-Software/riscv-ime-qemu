@@ -149,26 +149,6 @@ static uint64_t elem_mask(int esz)
     return esz < 8 ? ((1ULL << (esz * 8)) - 1) : ~0ULL;
 }
 
-/* --------------------------------------------------------------------
- * Int4 nibble packing helpers
- * ------------------------------------------------------------------ */
-
-static void pack_nibble(uint8_t *buf, int idx, uint8_t val4)
-{
-    int byte_idx = idx / 2;
-    int nibble   = idx % 2;
-    uint8_t raw  = val4 & 0xf;
-    if (nibble)
-        buf[byte_idx] = (buf[byte_idx] & 0x0f) | (raw << 4);
-    else
-        buf[byte_idx] = (buf[byte_idx] & 0xf0) | raw;
-}
-
-static int32_t sign_extend_int4(uint8_t raw)
-{
-    return (int8_t)((raw ^ 0x8) - 0x8);
-}
-
 /* ====================================================================
  * Test: same-width vmmacc.vv
  * ==================================================================== */

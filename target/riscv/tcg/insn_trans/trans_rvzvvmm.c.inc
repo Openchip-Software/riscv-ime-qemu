@@ -437,12 +437,12 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                 for (int k = k_start; k < k_end; ++k) {                \
                     tile_regoffset(i * k_eff + k, lmul, lambda,        \
                                    &regoff, &elemoff);                  \
-                    TA a_elem = ((TA *)(vs2 + regoff * vlenb))          \
+                    TA a_elem = ((TA *)(vs1 + regoff * vlenb))          \
                                  [ELEM_H(elemoff, sizeof(TA))];         \
                                                                         \
                     tile_regoffset(j * k_eff + k, lmul, lambda,        \
                                    &regoff, &elemoff);                  \
-                    TB b_elem = ((TB *)(vs1 + regoff * vlenb))          \
+                    TB b_elem = ((TB *)(vs2 + regoff * vlenb))          \
                                  [ELEM_H(elemoff, sizeof(TB))];         \
                                                                         \
                     ip += (INT_ACC)a_elem * (INT_ACC)b_elem;           \
@@ -539,9 +539,9 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                 int k_end = k_start + block_size;                       \
                 if (k_end > k_eff) k_end = k_eff;                      \
                 for (int k = k_start; k < k_end; ++k) {                \
-                    INT_ACC a_elem = (INT_ACC)EXTA(vs2, vlenb,          \
+                    INT_ACC a_elem = (INT_ACC)EXTA(vs1, vlenb,          \
                         i * k_eff + k, lmul, lambda);                   \
-                    INT_ACC b_elem = (INT_ACC)EXTB(vs1, vlenb,          \
+                    INT_ACC b_elem = (INT_ACC)EXTB(vs2, vlenb,          \
                         j * k_eff + k, lmul, lambda);                   \
                     ip += a_elem * b_elem;                              \
                 }                                                       \

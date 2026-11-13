@@ -42,8 +42,34 @@ static GPtrArray *imatches;
 static GArray *amatches;
 static GPtrArray *rmatches;
 static bool disas_assist;
+static bool mem_values;
 static GMutex add_reg_name_lock;
 static GPtrArray *all_reg_names;
+
+/* Append the value of a memory access, zero-padded to its size */
+static void append_mem_value(GString *s, qemu_plugin_mem_value value)
+{
+    switch (value.type) {
+    case QEMU_PLUGIN_MEM_VALUE_U8:
+        g_string_append_printf(s, ", 0x%02"PRIx8, value.data.u8);
+        break;
+    case QEMU_PLUGIN_MEM_VALUE_U16:
+        g_string_append_printf(s, ", 0x%04"PRIx16, value.data.u16);
+        break;
+    case QEMU_PLUGIN_MEM_VALUE_U32:
+        g_string_append_printf(s, ", 0x%08"PRIx32, value.data.u32);
+        break;
+    case QEMU_PLUGIN_MEM_VALUE_U64:
+        g_string_append_printf(s, ", 0x%016"PRIx64, value.data.u64);
+        break;
+    case QEMU_PLUGIN_MEM_VALUE_U128:
+        g_string_append_printf(s, ", 0x%016"PRIx64"%016"PRIx64,
+                               value.data.u128.high, value.data.u128.low);
+        break;
+    default:
+        g_assert_not_reached();
+    }
+}
 
 /**
  * Add memory read or write information to current instruction log
@@ -65,7 +91,20 @@ static void vcpu_mem(unsigned int cpu_index, qemu_plugin_meminfo_t info,
 
     /* If full system emulation log physical address and device name */
     struct qemu_plugin_hwaddr *hwaddr = qemu_plugin_get_hwaddr(info, vaddr);
-    if (hwaddr) {
+    if (mem_values) {
+        /* vaddr, paddr, device, size and value; '-' when not available */
+        g_string_append_printf(s, ", 0x%08"PRIx64, vaddr);
+        if (hwaddr) {
+            uint64_t addr = qemu_plugin_hwaddr_phys_addr(hwaddr);
+            const char *name = qemu_plugin_hwaddr_device_name(hwaddr);
+            g_string_append_printf(s, ", 0x%08"PRIx64", %s", addr, name);
+        } else {
+            g_string_append(s, ", -, -");
+        }
+        g_string_append_printf(s, ", %u",
+                               1u << qemu_plugin_mem_size_shift(info));
+        append_mem_value(s, qemu_plugin_mem_get_value(info));
+    } else if (hwaddr) {
         uint64_t addr = qemu_plugin_hwaddr_phys_addr(hwaddr);
         const char *name = qemu_plugin_hwaddr_device_name(hwaddr);
         g_string_append_printf(s, ", 0x%08"PRIx64", %s", addr, name);
@@ -471,6 +510,11 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
                 return -1;
             }
             all_reg_names = g_ptr_array_new();
+        } else if (g_strcmp0(tokens[0], "memvals") == 0) {
+            if (!qemu_plugin_bool_parse(tokens[0], tokens[1], &mem_values)) {
+                fprintf(stderr, "boolean argument parsing failed: %s\n", opt);
+                return -1;
+            }
         } else {
             fprintf(stderr, "option parsing failed: %s\n", opt);
             return -1;

@@ -164,13 +164,6 @@ static uint16_t float_to_f16(float f)
 static float bf16_to_float(uint16_t b) { return bits_to_f32((uint32_t)b << 16); }
 static uint16_t float_to_bf16(float f) { return (uint16_t)(f32_to_bits(f) >> 16); }
 
-static float e4m3_to_float(uint8_t v)
-{
-    uint32_t sign = (v >> 7) & 1, exp = (v >> 3) & 0xf, mant = v & 0x7;
-    if (!exp) return sign ? -0.0f : (mant ? bits_to_f32(0x7fc00000) : 0.0f);
-    if (exp == 0xf && mant == 0x7) return bits_to_f32(0x7fc00000u);
-    return bits_to_f32((sign << 31) | ((exp - 7 + 127) << 23) | (mant << 20));
-}
 static uint8_t float_to_e4m3(float f)
 {
     uint32_t b = f32_to_bits(f);
@@ -722,6 +715,82 @@ static int test_mxint_bs16(int accum_sew, int input_sew, int widening,
     return fail;
 }
 
+/* ====================================================================
+ * MXINT operand order: A is read from vs1 (v16), B from vs2 (v8).
+ *
+ * The uniform fills used above give the same result with the operands
+ * swapped.  Here only A[0][0] and B[0][1] are 1, so C[0][1] must be 1.0
+ * and every other element 0; with A and B swapped, the 1.0 lands in
+ * C[1][0] instead.
+ *
+ * LMUL is 1, so row i of A and column j of B each take lambda SEW-wide
+ * slots of their register, in order.  The first input element of a slot
+ * is its low byte (or low nibble), whatever the input width.
+ * ==================================================================== */
+
+static int test_mxint_operands(int accum_sew,  /* 2=f16/bf16, 4=f32, 8=f64 */
+                               int lambda, uint64_t vlenb,
+                               int altfmt,     /* 0=f16/f32/f64, 1=bf16 */
+                               emit_fn emit, const char *label)
+{
+    int M = vlenb / (accum_sew * lambda);
+    int mul_c = vlenb / (accum_sew * lambda * lambda);
+
+    /* C needs a register group of 1..8 and at least two rows and columns. */
+    if (mul_c < 1 || mul_c > 8 || M < 2) {
+        return 0;
+    }
+
+    uint64_t vl_ab = vlenb / accum_sew;         /* M rows/columns at LMUL=1 */
+    uint64_t vl_c  = (uint64_t)M * M;           /* full row-major C tile */
+
+    uint8_t *A_buf  = calloc(vlenb, 1);
+    uint8_t *B_buf  = calloc(vlenb, 1);
+    uint8_t *C_dst  = calloc(vl_c, accum_sew);
+    uint16_t *scale_buf = calloc(vlenb / 2, sizeof(uint16_t));
+
+    A_buf[0] = 1;                               /* A[0][0] */
+    B_buf[lambda * accum_sew] = 1;              /* B[0][1] */
+
+    /* All scales 2^0 */
+    for (int i = 0; i < (int)(vlenb / 2); i++) {
+        scale_buf[i] = 0x7F7F;
+    }
+
+    load_scale_v0(scale_buf, vlenb);
+
+    /* Zero all mul_c registers of C. */
+    set_macc_vtype(accum_sew, mul_c, lambda, altfmt, 0, 0, vl_c);
+    DO_VXOR_V24();
+
+    set_macc_vtype(accum_sew, 1, lambda, altfmt, 0, 0, vl_ab);
+    DO_TILE(INSN_VMTL_V16, A_buf, (uint64_t)lambda);
+    DO_TILE(INSN_VMTL_V8,  B_buf, (uint64_t)lambda);
+    emit();
+
+    set_macc_vtype(accum_sew, mul_c, lambda, altfmt, 0, 0, vl_c);
+    DO_TILE(INSN_VMTS_V24, C_dst, (uint64_t)M);
+
+    int fail = 0;
+    for (int row = 0; row < M; row++) {
+        for (int col = 0; col < M; col++) {
+            double expected_d = (row == 0 && col == 1) ? 1.0 : 0.0;
+            uint64_t expected = int_to_accum_raw(expected_d, accum_sew, altfmt);
+            uint64_t got = read_elem(C_dst, row * M + col, accum_sew);
+            if (got != expected) {
+                printf("FAIL %s lam=%d: C[%d][%d] got 0x%lx (%g) exp %g\n",
+                       label, lambda, row, col, (unsigned long)got,
+                       accum_raw_to_double(got, accum_sew, altfmt),
+                       expected_d);
+                fail = 1;
+            }
+        }
+    }
+
+    free(A_buf); free(B_buf); free(C_dst); free(scale_buf);
+    return fail;
+}
+
 int main(void)
 {
     /* Detect VLENB via the vlenb CSR (VLEN/8 in bytes). */
@@ -905,6 +974,31 @@ int main(void)
                                     0, 2, 3, 0x7F, 0x7F,
                                     emit_vqwmmacc_mx,
                                     "mxint-bs16 vfqwimmacc I8->F32");
+            tests++;
+        }
+
+        /* ---- MXINT operand order, one call per helper ---- */
+        static const struct {
+            int accum_sew, altfmt;
+            emit_fn emit;
+            const char *label;
+        } operand_tests[] = {
+            { 2, 0, emit_vwmmacc_mx,  "mxint operands vfwimmacc I8->F16" },
+            { 2, 1, emit_vwmmacc_mx,  "mxint operands vfwimmacc I8->BF16" },
+            { 4, 0, emit_vwmmacc_mx,  "mxint operands vfwimmacc I16->F32" },
+            { 2, 0, emit_vqwmmacc_mx, "mxint operands vfqimmacc I4->F16" },
+            { 2, 1, emit_vqwmmacc_mx, "mxint operands vfqimmacc I4->BF16" },
+            { 4, 0, emit_vqwmmacc_mx, "mxint operands vfqimmacc I8->F32" },
+            { 8, 0, emit_vqwmmacc_mx, "mxint operands vfqimmacc I16->F64" },
+            { 4, 0, emit_v8wmmacc_mx, "mxint operands vf8wimmacc I4->F32" },
+            { 8, 0, emit_v8wmmacc_mx, "mxint operands vf8wimmacc I8->F64" },
+        };
+        for (int t = 0; t < sizeof(operand_tests) / sizeof(operand_tests[0]);
+             t++) {
+            fail |= test_mxint_operands(operand_tests[t].accum_sew, lambda,
+                                        vlenb, operand_tests[t].altfmt,
+                                        operand_tests[t].emit,
+                                        operand_tests[t].label);
             tests++;
         }
     }
