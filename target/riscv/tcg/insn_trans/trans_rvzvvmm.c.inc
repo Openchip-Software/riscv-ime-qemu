@@ -187,8 +187,8 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
                 uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
                                   [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(pa & 0xFF),                         \
-                    e8m0_to_float32(pb >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF, fs),                     \
+                    e8m0_to_float32(pb >> 8, fs), fs);                  \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Spec commit d561ad54: when the combined block scale  \
@@ -294,8 +294,8 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
                 uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
                                   [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(pa & 0xFF),                         \
-                    e8m0_to_float32(pb >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF, fs),                     \
+                    e8m0_to_float32(pb >> 8, fs), fs);                  \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Spec d561ad54: combined-scale NaN forces this output \
@@ -418,8 +418,8 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                 uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
                                   [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(pa & 0xFF),                         \
-                    e8m0_to_float32(pb >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF, fs),                     \
+                    e8m0_to_float32(pb >> 8, fs), fs);                  \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Spec d561ad54: combined-scale NaN forces this output \
@@ -522,8 +522,8 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                 uint16_t pb    = ((uint16_t *)(v0 + b_reg * vlenb))    \
                                   [H2(b_off)];                          \
                 float32 sc = float32_mul(                               \
-                    e8m0_to_float32(pa & 0xFF),                         \
-                    e8m0_to_float32(pb >> 8), fs);                      \
+                    e8m0_to_float32(pa & 0xFF, fs),                     \
+                    e8m0_to_float32(pb >> 8, fs), fs);                  \
                 TD scale_td = SCALE_TO_TD(sc, fs);                     \
                                                                         \
                 /* Spec d561ad54: combined-scale NaN forces this output \
@@ -932,10 +932,10 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
  * bfloat16 shares float32's exponent format (bias 127, 8 exp bits), so it
  * has the same special cases as float32 (e8m0=0 is subnormal at 0x0040).
  */
-static float32 G_GNUC_UNUSED e8m0_to_float32(uint8_t e8m0)
+static float32 G_GNUC_UNUSED e8m0_to_float32(uint8_t e8m0, float_status *fs)
 {
     if (e8m0 == 0xFF) {
-        return float32_default_nan(NULL);
+        return float32_default_nan(fs);
     }
     if (e8m0 == 0x00) {
         return make_float32(0x00400000); /* 2^-127 as float32 subnormal */
@@ -943,10 +943,10 @@ static float32 G_GNUC_UNUSED e8m0_to_float32(uint8_t e8m0)
     return make_float32((uint32_t)e8m0 << 23);
 }
 
-static float64 G_GNUC_UNUSED e8m0_to_float64(uint8_t e8m0)
+static float64 G_GNUC_UNUSED e8m0_to_float64(uint8_t e8m0, float_status *fs)
 {
     if (e8m0 == 0xFF) {
-        return float64_default_nan(NULL);
+        return float64_default_nan(fs);
     }
     return make_float64((uint64_t)(e8m0 + 896) << 52);
 }
