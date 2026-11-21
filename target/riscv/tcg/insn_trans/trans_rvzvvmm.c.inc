@@ -61,7 +61,7 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     const uint8_t  sewb = 1 << vsew;                                    \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
                                                                         \
@@ -74,7 +74,7 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
                                                                         \
     /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -139,7 +139,7 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     const uint32_t SEW_bits = 8u << vsew;                               \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
     const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
@@ -156,7 +156,7 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     uint32_t vl = env->vl;                                              \
                                                                         \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -247,7 +247,7 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     const uint32_t SEW_bits = 8u << vsew;                               \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
     const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
@@ -263,7 +263,7 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     uint32_t vl = env->vl;                                              \
                                                                         \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -371,7 +371,7 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     const uint32_t SEW_bits = 8u << vsew;                               \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
     const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
@@ -387,7 +387,7 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     uint32_t vl = env->vl;                                              \
                                                                         \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -475,7 +475,7 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     const uint32_t SEW_bits = 8u << vsew;                               \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
     const uint8_t  bs = FIELD_EX64(env->vtype, VTYPE, BS);             \
@@ -491,7 +491,7 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     uint32_t vl = env->vl;                                              \
                                                                         \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -567,7 +567,7 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
     const uint8_t  sewb = 1 << vsew;                                    \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
     float_status *fs = &env->fp_status;                                 \
@@ -581,7 +581,7 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                                                                         \
     /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -672,7 +672,7 @@ static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
     const uint8_t  sewb = 1 << vsew;                                    \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
                                                                         \
@@ -685,7 +685,7 @@ static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
                                                                         \
     /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -867,7 +867,7 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
     const uint8_t  sewb = 1 << vsew;                                    \
     const uint8_t  vlambda = vext_vlambda(desc);                        \
     if (vlambda == 0)                                                   \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
     const uint8_t  lambda = 1 << (vlambda - 1);                         \
     const uint8_t  lmul = 1 << vext_lmul(desc);                        \
     float_status *fs = &env->fp_status;                                 \
@@ -881,7 +881,7 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
                                                                         \
     /* VL counts B SEW-slots; one B/C column = lambda*LMUL VL units */   \
     if (vl % vl_div)                                                    \
-        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, 0);         \
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());         \
                                                                         \
     const uint16_t N = vl / vl_div;                                     \
                                                                         \
@@ -1666,6 +1666,49 @@ static bool zvvmm_ext_check(DisasContext *s, uint32_t ext_offset)
 }
 
 /*
+ * Operand rules shared by every Zvvmm multiply-accumulate:
+ * - vstart must be zero.
+ * - The C group (vd, 2^mul_c_log2 registers) must not overlap the A group
+ *   (vs1) or the B group (vs2), whatever the value of VL.
+ * - With vm=0 (microscaling), v0 holds the scales, so none of vd, vs1 and
+ *   vs2 may overlap v0.
+ */
+static bool zvvmm_macc_operands_ok(DisasContext *s, arg_rmrr *a,
+                                   int8_t mul_c_log2)
+{
+    int8_t c_regs = 1 << mul_c_log2;
+    int8_t ab_regs = 1 << s->lmul;
+
+    if (!s->vstart_eq_zero) {
+        return false;
+    }
+    if (is_overlapped(a->rd, c_regs, a->rs1, ab_regs) ||
+        is_overlapped(a->rd, c_regs, a->rs2, ab_regs)) {
+        return false;
+    }
+    if (a->vm == 0 &&
+        (is_overlapped(a->rd, c_regs, 0, 1) ||
+         is_overlapped(a->rs1, ab_regs, 0, 1) ||
+         is_overlapped(a->rs2, ab_regs, 0, 1))) {
+        return false;
+    }
+    return true;
+}
+
+/*
+ * The helpers check VL at run time and raise illegal-instruction, so save
+ * the opcode for xtval. gen_set_rm() may already have saved it.
+ */
+static bool zvvmm_macc_gen(DisasContext *s, arg_rmrr *a, uint32_t vm,
+                           gen_helper_vmmacc *fn)
+{
+    if (!s->insn_start_updated) {
+        decode_save_opc(s, 0);
+    }
+    return opivv_trans(a->rd, a->rs1, a->rs2, vm, fn, s);
+}
+
+/*
  * Integer MACC dispatch tables: fns[altfmt_a][altfmt_b][sew]
  *
  * Helper selection is performed at translation time based on altfmt_a,
@@ -1690,7 +1733,8 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
 
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&
-        require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
+        require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul) &&
+        zvvmm_macc_operands_ok(s, a, mul_c_log2)) {
 
         if (a->vm == 0) {
             /* MXINT path: signed integer inputs, FP accumulator, E8M0 microscaled.
@@ -1712,7 +1756,7 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
             }
             gen_helper_vmmacc *mxint_fn = mxint_fns[s->altfmt][s->sew];
             if (mxint_fn) {
-                return opivv_trans(a->rd, a->rs1, a->rs2, 0, mxint_fn, s);
+                return zvvmm_macc_gen(s, a, 0, mxint_fn);
             }
             return false;
         }
@@ -1720,7 +1764,7 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
         /* vm=1: integer MACC */
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->sew];
         if (fn) {
-            return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);
+            return zvvmm_macc_gen(s, a, a->vm, fn);
         }
     }
 
@@ -1751,7 +1795,8 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
 
     if (mul_c_log2 >= 0 && s->lmul >= 0 && vext_check_isa_ill(s) &&
         require_align(a->rd, mul_c_log2) &&
-        require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul)) {
+        require_align(a->rs1, s->lmul) && require_align(a->rs2, s->lmul) &&
+        zvvmm_macc_operands_ok(s, a, mul_c_log2)) {
 
         /* All FP MACC paths use the dynamic rounding mode from frm */
         gen_set_rm(s, RISCV_FRM_DYN);
@@ -1772,7 +1817,7 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
             gen_helper_vmmacc *mx_fn =
                 mx_fns[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
             if (mx_fn) {
-                return opivv_trans(a->rd, a->rs1, a->rs2, 0, mx_fn, s);
+                return zvvmm_macc_gen(s, a, 0, mx_fn);
             }
             return false;
         }
@@ -1780,7 +1825,7 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
         /* vm=1: unmasked non-MX path */
         gen_helper_vmmacc *fn = fns[s->altfmt_a][s->altfmt_b][s->altfmt][s->sew];
         if (fn) {
-            return opivv_trans(a->rd, a->rs1, a->rs2, 1, fn, s);
+            return zvvmm_macc_gen(s, a, 1, fn);
         }
     }
 

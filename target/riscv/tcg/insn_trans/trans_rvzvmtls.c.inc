@@ -84,6 +84,9 @@ static bool ldst_tile_trans(uint32_t vd, uint32_t rs1, uint32_t rs2,
         return false;
     }
 
+    /* The helper checks VL at run time; save the opcode for xtval. */
+    decode_save_opc(s, 0);
+
     dest = tcg_temp_new_ptr();
     mask = tcg_temp_new_ptr();
     base = get_gpr(s, rs1, EXT_NONE);
