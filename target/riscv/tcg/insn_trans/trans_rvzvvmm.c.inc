@@ -50,6 +50,22 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
     *elementoff = line * lambda + elem_in_line % lambda;
 }
 
+/*
+ * Register and element offset of A[row][k] or B^T[row][k] in an A or B
+ * register group. Each register holds lambda * W consecutive K elements of
+ * every row, and the registers of the group follow each other along K:
+ * register k / (lambda * W), element row * (lambda * W) + k % (lambda * W).
+ */
+static void tile_ab_regoffset(uint32_t row, uint32_t k, uint32_t lambda,
+                              uint32_t widening,
+                              uint8_t *regoff, uint16_t *elementoff)
+{
+    uint32_t per_reg = lambda * widening;
+
+    *regoff     = k / per_reg;
+    *elementoff = row * per_reg + k % per_reg;
+}
+
 #define GEN_ZVVMM_VMMACC_VV(NAME, TD, T1, T2, TX1, TX2, OP)            \
     void HELPER(NAME)(void *vd, void *v0, void *vs1,                    \
                   void *vs2, CPURISCVState *env,                        \
@@ -92,14 +108,14 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int k = 0; k < k_eff; ++k) {                          \
-                /* A[i,k]: row-major, flat = i * k_eff + k */           \
-                tile_regoffset(i * k_eff + k, lmul, lambda,            \
+                /* A[i,k]: row i of the A group */                      \
+                tile_ab_regoffset(i, k, lambda, widening,              \
                                &regoff, &elemoff);                      \
                 TX1 a = ((T1 *)(vs1 + regoff * vlenb))                  \
                          [ELEM_H(elemoff, sizeof(T1))];                 \
                                                                         \
-                /* B[k,j]: column-major, flat = j * k_eff + k */        \
-                tile_regoffset(j * k_eff + k, lmul, lambda,            \
+                /* B[k,j]: row j of the B^T group */                    \
+                tile_ab_regoffset(j, k, lambda, widening,              \
                                &regoff, &elemoff);                      \
                 TX2 b = ((T2 *)(vs2 + regoff * vlenb))                  \
                          [ELEM_H(elemoff, sizeof(T2))];                 \
@@ -208,12 +224,12 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
                 int k_end = k_start + block_size;                       \
                 if (k_end > k_eff) k_end = k_eff;                      \
                 for (int k = k_start; k < k_end; ++k) {                \
-                    tile_regoffset(i * k_eff + k, lmul, lambda,        \
+                    tile_ab_regoffset(i, k, lambda, widening,          \
                                    &regoff, &elemoff);                  \
                     TX1 a = ((T1 *)(vs1 + regoff * vlenb))              \
                              [ELEM_H(elemoff, sizeof(T1))];             \
                                                                         \
-                    tile_regoffset(j * k_eff + k, lmul, lambda,        \
+                    tile_ab_regoffset(j, k, lambda, widening,          \
                                    &regoff, &elemoff);                  \
                     TX2 b = ((T2 *)(vs2 + regoff * vlenb))              \
                              [ELEM_H(elemoff, sizeof(T2))];             \
@@ -311,9 +327,9 @@ static void tile_regoffset(uint32_t flat_idx, uint32_t regmul,
                 if (k_end > k_eff) k_end = k_eff;                      \
                 for (int k = k_start; k < k_end; ++k) {                \
                     TEXTA a = EXTA(vs1, vlenb,                          \
-                        i * k_eff + k, lmul, lambda);                   \
+                        i, k, lambda, widening);                        \
                     TEXTB b = EXTB(vs2, vlenb,                          \
-                        j * k_eff + k, lmul, lambda);                   \
+                        j, k, lambda, widening);                        \
                     ip = OP(a, b, ip, fs);                              \
                 }                                                       \
                                                                         \
@@ -435,12 +451,12 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                 int k_end = k_start + block_size;                       \
                 if (k_end > k_eff) k_end = k_eff;                      \
                 for (int k = k_start; k < k_end; ++k) {                \
-                    tile_regoffset(i * k_eff + k, lmul, lambda,        \
+                    tile_ab_regoffset(i, k, lambda, widening,          \
                                    &regoff, &elemoff);                  \
                     TA a_elem = ((TA *)(vs2 + regoff * vlenb))          \
                                  [ELEM_H(elemoff, sizeof(TA))];         \
                                                                         \
-                    tile_regoffset(j * k_eff + k, lmul, lambda,        \
+                    tile_ab_regoffset(j, k, lambda, widening,          \
                                    &regoff, &elemoff);                  \
                     TB b_elem = ((TB *)(vs1 + regoff * vlenb))          \
                                  [ELEM_H(elemoff, sizeof(TB))];         \
@@ -540,9 +556,9 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
                 if (k_end > k_eff) k_end = k_eff;                      \
                 for (int k = k_start; k < k_end; ++k) {                \
                     INT_ACC a_elem = (INT_ACC)EXTA(vs2, vlenb,          \
-                        i * k_eff + k, lmul, lambda);                   \
+                        i, k, lambda, widening);                        \
                     INT_ACC b_elem = (INT_ACC)EXTB(vs1, vlenb,          \
-                        j * k_eff + k, lmul, lambda);                   \
+                        j, k, lambda, widening);                        \
                     ip += a_elem * b_elem;                              \
                 }                                                       \
                                                                         \
@@ -599,14 +615,14 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int k = 0; k < k_eff; ++k) {                          \
-                /* A[i,k]: row-major, flat = i * k_eff + k */           \
-                tile_regoffset(i * k_eff + k, lmul, lambda,            \
+                /* A[i,k]: row i of the A group */                      \
+                tile_ab_regoffset(i, k, lambda, widening,              \
                                &regoff, &elemoff);                      \
                 TX1 a = ((T1 *)(vs1 + regoff * vlenb))                  \
                          [ELEM_H(elemoff, sizeof(T1))];                 \
                                                                         \
-                /* B[k,j]: column-major, flat = j * k_eff + k */        \
-                tile_regoffset(j * k_eff + k, lmul, lambda,            \
+                /* B[k,j]: row j of the B^T group */                    \
+                tile_ab_regoffset(j, k, lambda, widening,              \
                                &regoff, &elemoff);                      \
                 TX2 b = ((T2 *)(vs2 + regoff * vlenb))                  \
                          [ELEM_H(elemoff, sizeof(T2))];                 \
@@ -628,15 +644,13 @@ static uint8_t float32_to_e4m3_with_nan(float32 v, float_status *fs)
  * offset is then split into byte position and nibble selector.
  */
 static uint8_t tile_extract_nibble(void *base, uint16_t vlenb,
-                                   uint32_t flat_idx, uint32_t regmul,
-                                   uint32_t lambda)
+                                   uint32_t row, uint32_t k,
+                                   uint32_t lambda, uint32_t widening)
 {
-    uint32_t linesize     = lambda * regmul;
-    uint32_t line         = flat_idx / linesize;
-    uint32_t elem_in_line = flat_idx % linesize;
+    uint8_t  regoff;
+    uint16_t elemoff;
 
-    uint8_t  regoff  = elem_in_line / lambda;
-    uint16_t elemoff = line * lambda + elem_in_line % lambda;
+    tile_ab_regoffset(row, k, lambda, widening, &regoff, &elemoff);
     uint16_t byteoff = elemoff / 2;
     uint8_t  nibble  = elemoff % 2;
 
@@ -646,19 +660,19 @@ static uint8_t tile_extract_nibble(void *base, uint16_t vlenb,
 
 /* Extract a signed 4-bit integer (sign-extended). */
 static int32_t tile_extract_int4(void *base, uint16_t vlenb,
-                                 uint32_t flat_idx, uint32_t regmul,
-                                 uint32_t lambda)
+                                 uint32_t row, uint32_t k,
+                                 uint32_t lambda, uint32_t widening)
 {
-    uint8_t raw = tile_extract_nibble(base, vlenb, flat_idx, regmul, lambda);
+    uint8_t raw = tile_extract_nibble(base, vlenb, row, k, lambda, widening);
     return (int8_t)((raw ^ 0x8) - 0x8);
 }
 
 /* Extract an unsigned 4-bit integer (zero-extended). */
 static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
-                                    uint32_t flat_idx, uint32_t regmul,
-                                    uint32_t lambda)
+                                    uint32_t row, uint32_t k,
+                                    uint32_t lambda, uint32_t widening)
 {
-    return tile_extract_nibble(base, vlenb, flat_idx, regmul, lambda);
+    return tile_extract_nibble(base, vlenb, row, k, lambda, widening);
 }
 
 #define GEN_ZVVMM_VMMACC_VV_4BIT(NAME, TD, TEXTA, TEXTB, EXTA, EXTB, OP) \
@@ -703,13 +717,13 @@ static uint32_t tile_extract_uint4(void *base, uint16_t vlenb,
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int k = 0; k < k_eff; ++k) {                          \
-                /* A[i,k]: row-major, flat = i * k_eff + k */           \
+                /* A[i,k]: row i of the A group */                      \
                 TEXTA a = EXTA(vs1, vlenb,                              \
-                    i * k_eff + k, lmul, lambda);                       \
+                    i, k, lambda, widening);                            \
                                                                         \
-                /* B[k,j]: column-major, flat = j * k_eff + k */        \
+                /* B[k,j]: row j of the B^T group */                    \
                 TEXTB b = EXTB(vs2, vlenb,                              \
-                    j * k_eff + k, lmul, lambda);                       \
+                    j, k, lambda, widening);                            \
                                                                         \
                 c_elem = OP(a, b, c_elem);                              \
             }                                                           \
@@ -899,13 +913,13 @@ RVVCALL(GEN_ZVVMM_VMMACC_VV, v8wmmacc_vv_d_us, O8WOP_SUS_D, DO_MACC)
             TD c_elem = *c_elem_ptr;                                    \
                                                                         \
             for (int k = 0; k < k_eff; ++k) {                          \
-                /* A[i,k]: row-major, flat = i * k_eff + k */           \
+                /* A[i,k]: row i of the A group */                      \
                 TEXTA a = EXTA(vs1, vlenb,                              \
-                    i * k_eff + k, lmul, lambda);                       \
+                    i, k, lambda, widening);                            \
                                                                         \
-                /* B[k,j]: column-major, flat = j * k_eff + k */        \
+                /* B[k,j]: row j of the B^T group */                    \
                 TEXTB b = EXTB(vs2, vlenb,                              \
-                    j * k_eff + k, lmul, lambda);                       \
+                    j, k, lambda, widening);                            \
                                                                         \
                 c_elem = OP(a, b, c_elem, fs);                          \
             }                                                           \
