@@ -33,6 +33,25 @@
 #include "vector_internals.h"
 #include <math.h>
 
+/*
+ * The Zvvfmm types with an OFP8 accumulator (SEW = 8) or a BF16 accumulator
+ * (SEW = 16) select the C format with altfmt (vtype[8]). The IME spec lists
+ * only Zve32f as their dependency, so altfmt = 1 is valid at that SEW when
+ * one of them is enabled, even without Zvfbfa.
+ */
+static bool zvvfmm_altfmt_c(const RISCVCPUConfig *cfg, uint8_t vsew)
+{
+    switch (vsew) {
+    case MO_8:
+        return cfg->ext_zvvfmmofp8 || cfg->ext_zvvfmmofp4opf8;
+    case MO_16:
+        return cfg->ext_zvvfmmbf16 || cfg->ext_zvvfmmofp8bf16 ||
+               cfg->ext_zvvfmmofp4bf16;
+    default:
+        return false;
+    }
+}
+
 static target_ulong vtype_reserved(CPURISCVState *env, target_ulong vtype)
 {
     int xlen = riscv_cpu_xlen(env);
@@ -53,6 +72,11 @@ static target_ulong vtype_reserved(CPURISCVState *env, target_ulong vtype)
                      | MAKE_64BIT_MASK(xlen - 5, 1)  /* bs         */
                      | MAKE_64BIT_MASK(xlen - 6, 1)  /* altfmt_A   */
                      | MAKE_64BIT_MASK(xlen - 7, 1)  /* altfmt_B   */);
+    }
+
+    if (zvvfmm_altfmt_c(riscv_cpu_cfg(env), MO_8) ||
+        zvvfmm_altfmt_c(riscv_cpu_cfg(env), MO_16)) {
+        reserved &= ~MAKE_64BIT_MASK(R_VTYPE_ALTFMT_SHIFT, 1);
     }
 
     return reserved;
@@ -113,6 +137,7 @@ target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
     default:
         break;
     }
+    ill_altfmt &= !zvvfmm_altfmt_c(&cpu->cfg, vsew);
 
     if (altfmt && ill_altfmt) {
         vill = true;
