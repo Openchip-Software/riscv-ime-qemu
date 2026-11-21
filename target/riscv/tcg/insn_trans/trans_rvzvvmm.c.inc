@@ -1707,7 +1707,7 @@ static bool zvvmm_macc_trans(DisasContext *s, arg_rmrr *a,
             if (((8u << s->sew) << (s->vlambda - 1)) < 16) {
                 return false;
             }
-            if (s->bs && widening * (1 << s->lmul) > (1u << s->sew)) {
+            if (s->bs && widening * (1 << s->lmul) > (8u << s->sew)) {
                 return false;
             }
             gen_helper_vmmacc *mxint_fn = mxint_fns[s->altfmt][s->sew];
@@ -1765,8 +1765,8 @@ static bool zvvmm_fmacc_trans(DisasContext *s, arg_rmrr *a,
             if (((8u << s->sew) << (s->vlambda - 1)) < 16) {
                 return false;
             }
-            /* BS=16 legality: widening × LMUL ≤ SEW */
-            if (s->bs && widening * (1 << s->lmul) > (1u << s->sew)) {
+            /* BS=16 legality: widening × LMUL ≤ SEW, with SEW in bits */
+            if (s->bs && widening * (1 << s->lmul) > (8u << s->sew)) {
                 return false;
             }
             gen_helper_vmmacc *mx_fn =
